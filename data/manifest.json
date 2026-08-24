@@ -1,0 +1,12 @@
+{
+  "source": {
+    "market": "https://www.sharesansar.com/market",
+    "prices": "https://www.sharesansar.com/today-share-price"
+  },
+  "updated_at_utc": "2026-08-24T11:23:52Z",
+  "latest_trading_date": "2026-08-24",
+  "history_rows": 1,
+  "latest_symbol_count": 346,
+  "latest_index_count": 18,
+  "format": "SMC Toolkit wide rows: Date, Index - Open, SYMBOL-Open, ..."
+}
