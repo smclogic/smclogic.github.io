@@ -1,10 +1,11 @@
 import sys
 import unittest
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from update_nepse import DataError, merge_row, parse_market_page, parse_price_page
+from update_nepse import DataError, NoTradingData, SourceSnapshot, is_nepse_scheduled_day, merge_row, parse_market_page, parse_price_page, should_publish_snapshot
 from import_history_xlsx import load_workbook_rows
 
 
@@ -75,8 +76,29 @@ class UpdateNepseTests(unittest.TestCase):
         self.assertEqual(rows[-1]["ADBL-Volume"], 2345)
 
     def test_invalid_market_page_is_rejected(self):
-        with self.assertRaises(DataError):
+        with self.assertRaises(NoTradingData):
             parse_market_page("<html><body>No market table</body></html>")
+
+    def test_market_page_without_explicit_date_is_rejected(self):
+        html = MARKET_HTML.replace("As of 2026-08-24", "Market summary")
+        with self.assertRaises(NoTradingData):
+            parse_market_page(html)
+
+    def test_nepse_schedule_matches_apps_script_monday_to_friday(self):
+        # Python weekday(): Monday=0 ... Friday=4, Saturday=5, Sunday=6.
+        self.assertTrue(is_nepse_scheduled_day(date(2026, 8, 24)))
+        self.assertTrue(is_nepse_scheduled_day(date(2026, 8, 28)))
+        self.assertFalse(is_nepse_scheduled_day(date(2026, 8, 29)))
+        self.assertFalse(is_nepse_scheduled_day(date(2026, 8, 30)))
+
+    def test_stale_source_date_is_not_published(self):
+        snapshot = SourceSnapshot(
+            trading_date="2026-08-26",
+            row={"Date": "2026-08-26", "Index - Close": 2600},
+            symbol_count=300,
+            index_count=18,
+        )
+        self.assertFalse(should_publish_snapshot(snapshot, date(2026, 8, 27)))
 
 
 if __name__ == "__main__":
