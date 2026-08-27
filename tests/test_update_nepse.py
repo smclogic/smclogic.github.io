@@ -5,6 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from update_nepse import DataError, merge_row, parse_market_page, parse_price_page
+from import_history_xlsx import load_workbook_rows
 
 
 MARKET_HTML = """
@@ -40,7 +41,7 @@ class UpdateNepseTests(unittest.TestCase):
             {"Open": 300, "High": 305, "Low": 295, "Close": 302, "Volume": 12345},
         )
 
-    def test_merge_row_replaces_same_date_and_sorts_history(self):
+    def test_merge_row_preserves_existing_fields_and_sorts_history(self):
         old = [
             {"Date": "2026-08-23", "Index - Close": 2600},
             {"Date": "2026-08-24", "Index - Close": 2610},
@@ -48,6 +49,30 @@ class UpdateNepseTests(unittest.TestCase):
         updated = merge_row(old, {"Date": "2026-08-24", "Index - Close": 2620})
         self.assertEqual([row["Date"] for row in updated], ["2026-08-23", "2026-08-24"])
         self.assertEqual(updated[-1]["Index - Close"], 2620)
+
+    def test_merge_row_does_not_erase_existing_fields(self):
+        old = [{"Date": "2026-08-24", "Index - Close": 2610, "ADBL-Close": 302}]
+        updated = merge_row(old, {"Date": "2026-08-24", "Index - Close": 2620})
+        self.assertEqual(updated[0]["Index - Close"], 2620)
+        self.assertEqual(updated[0]["ADBL-Close"], 302)
+
+    def test_xlsx_importer_reads_wide_rows_and_normalizes_dates(self):
+        from openpyxl import Workbook
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "history.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append(["Date", "Index - Open", "Index - High", "Index - Low", "Index - Close", "Index - Turnover", "ADBL-Open", "ADBL-High", "ADBL-Low", "ADBL-Close", "ADBL-Volume"])
+            sheet.append(["2026-08-23", 2600, 2620, 2590, 2610, 1000000, 300, 305, 295, 302, 1234])
+            sheet.append(["2026-08-24", 2610, 2630, 2600, 2620, 1100000, 302, 308, 300, 307, 2345])
+            workbook.save(path)
+            rows = load_workbook_rows(path)
+
+        self.assertEqual([row["Date"] for row in rows], ["2026-08-23", "2026-08-24"])
+        self.assertEqual(rows[-1]["Index - Close"], 2620)
+        self.assertEqual(rows[-1]["ADBL-Volume"], 2345)
 
     def test_invalid_market_page_is_rejected(self):
         with self.assertRaises(DataError):

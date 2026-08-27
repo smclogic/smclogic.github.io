@@ -1,70 +1,72 @@
-# SMC Toolkit — Free NEPSE GitHub Data Pipeline
+# SMC Toolkit — Clean GitHub-only Website
 
-This project keeps the existing SMC Toolkit visual design and moves the **SMC Chart OHLC data** from Google Apps Script to a free GitHub repository workflow. A Python script collects public daily data from ShareSansar’s market and today-share-price pages [1] [2], validates that the response is complete, writes JSON/CSV files into the repository, and GitHub Actions commits changes automatically after the Nepal market day.
+This is the clean static version of the SMC Chart extracted from the existing SMC Toolkit. The chart UI, controls, SMC calculations, indicators, screeners, overlays, replay tools, responsive layout, and theme behavior are preserved. The old Google Apps Script data dependency has been removed from this clean page.
 
-The existing Google Apps Script is retained locally as `apps_script_reference.gs` for reference only. The other toolkit tabs in the copied HTML still contain their original Apps Script URLs; only the embedded SMC Chart data source has been changed to repository JSON placeholders.
+The site is designed for the `smclogic.github.io` repository. `index.html` reads data from repository-relative files, so no username, repository placeholder, Google Sheet URL, credential, or paid NEPSE API is required.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `scripts/update_nepse.py` | Scrapes the two free public pages, normalizes values, validates completeness, and writes outputs. |
-| `data/nepse_ohlc.json` | Full history in the existing wide-row contract used by the SMC Chart. |
-| `data/nepse_ohlc.csv` | Same history in CSV form. |
-| `data/nepse_ohlc_fast.json` | Compact index/sub-index-only JSON for the chart’s fast first render. |
+| `index.html` | Clean standalone SMC Chart website with the existing chart UI and client-side logic. |
+| `data/chunks/YYYY.json` | Yearly historical wide-format OHLC chunks; each file stays below GitHub’s browser upload limit. |
+| `data/chunks/manifest.json` | List of yearly chunks and their date/size metadata. |
+| `data/nepse_ohlc_fast.json` | Historical index/sub-index data for quick first rendering. |
 | `data/latest.json` and `data/latest.csv` | Latest trading-day snapshot. |
-| `data/history/YYYY-MM-DD.json` | Immutable-per-date snapshot for easy inspection and backup. |
-| `data/manifest.json` | Source URLs, timestamp, row counts, and validation metadata. |
-| `.github/workflows/daily-nepse.yml` | Scheduled Sunday–Thursday update job plus manual run support. |
-| `smc_toolkit.html` | Copy of the uploaded toolkit with only the SMC Chart source configuration changed. |
-| `apps_script_reference.gs` | User-provided Apps Script reference; not required by the GitHub workflow. |
+| `data/nepse_ohlc.csv` | Full history in CSV form. |
+| `data/history/YYYY-MM-DD.json` | Per-date archive snapshot. |
+| `data/manifest.json` | Source, timestamp, row-count, and validation metadata. |
+| `scripts/update_nepse.py` | Free public-page scraper and daily JSON/CSV exporter. |
+| `scripts/import_history_xlsx.py` | One-time Google Sheets XLSX history importer. |
+| `.github/workflows/daily-nepse.yml` | Manual and scheduled GitHub Actions updater. |
+| `tests/test_update_nepse.py` | Offline parser and merge tests. |
 
-## Data contract
+## Historical data already imported
 
-The JSON format intentionally matches the current chart parser. Each history row has a `Date` field and wide columns such as `Index - Open`, `Index - High`, `Index - Low`, `Index - Close`, `Index - Turnover`, `ADBL-Open`, `ADBL-High`, `ADBL-Low`, `ADBL-Close`, and `ADBL-Volume`. The existing chart parser already recognizes this format and converts it into per-instrument OHLC arrays.
+The uploaded Google Sheets workbook was converted into the repository format. It contains one `NepseComplete` sheet, 2,216 dated rows from `2017-01-01` through `2026-08-24`, 2,350 data columns, 18 index/sub-index groups, and approximately 470 stock instruments across the available history. The importer preserves sparse historical rows and does not discard a date merely because some instruments did not yet exist.
 
-The two public source pages are [ShareSansar Market](https://www.sharesansar.com/market) for NEPSE indices/sub-indices and [ShareSansar Today Share Price](https://www.sharesansar.com/today-share-price) for listed-company daily prices [1] [2]. This is **not a licensed NEPSE API** and it may require parser maintenance if the public site changes its layout or access behavior.
+The chart reads `data/chunks/manifest.json`, fetches all yearly chunks, and combines them in the browser. The fast file is also historical, but contains only index/sub-index columns so the NEPSE chart can render quickly. The yearly chunks are used to populate stock selectors and individual instrument history.
 
-## Local run
+## Data source and daily update
 
-From the repository root, install the small dependency set and run the updater:
+The historical seed comes from the user’s Google Sheets XLSX export. Future daily rows are collected from public tables on [ShareSansar Market][1] for NEPSE indices and sub-indices, and [ShareSansar Today Share Price][2] for listed-company daily OHLC and volume. This is a free public-page collection method, not a licensed NEPSE API. If a source website changes its table layout or access behavior, the parser may need maintenance.
+
+The daily updater merges each fresh row field-by-field into the matching date. It does not replace the entire historical row, so a partial live response cannot erase older OHLC/volume fields imported from the workbook. If the source returns too few symbols or malformed data, the workflow fails before publishing a partial replacement.
+
+## One-time Google Sheet import
+
+The importer is already run for the supplied workbook. To repeat the process with a newer XLSX export, place the file in the project directory and run:
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 scripts/update_nepse.py
+python3 scripts/import_history_xlsx.py path/to/your-export.xlsx
 ```
 
-The updater refuses to publish a suspiciously small scrape. The default minimum is 100 valid scrips; the workflow uses the same threshold. A same-date rerun replaces that date’s row instead of creating duplicates, which makes manual retries safe.
-
-Run the tests with:
-
-```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
-```
+The importer expects the first worksheet row to contain the wide headers used by the chart, such as `Date`, `Index - Open`, `Index - High`, `Index - Low`, `Index - Close`, `Index - Turnover`, and `ADBL-Open`. It merges dates, removes empty cells, normalizes Excel dates to `YYYY-MM-DD`, rejects duplicate headers, writes yearly JSON chunks, and rewrites the repository CSV files.
 
 ## GitHub setup
 
-Create a GitHub repository and upload the project contents. In the repository settings, the workflow needs permission to write repository contents. The workflow declares `contents: write`; if a repository policy overrides that setting, enable **Settings → Actions → General → Workflow permissions → Read and write permissions**.
+Upload the complete contents of this folder to the root of the `smclogic.github.io` repository on the `main` branch. The hidden workflow path must be created exactly as `.github/workflows/daily-nepse.yml`; do not place the YAML file at the repository root.
 
-Run **Actions → Daily NEPSE OHLC update → Run workflow** once to verify the first GitHub-side scrape. The scheduled job runs at `12:30 UTC`, which is `18:15 Nepal time`, on Sunday through Thursday. GitHub may start scheduled jobs with some delay, so the manual button remains available.
+In **Settings → Actions → General**, make sure workflow permissions allow **Read and write permissions** for repository contents. Then open **Actions → Daily NEPSE OHLC update → Run workflow → Run workflow**. A successful run will update only the `data/` files. It will not replace or modify unrelated website files.
 
-## Connect the HTML to the repository
+The scheduled job runs at `12:30 UTC`, which is `18:15 Nepal time`, Sunday through Thursday. GitHub may delay scheduled jobs, so the manual run remains available.
 
-Open `smc_toolkit.html` and edit the two constants near the SMC Chart configuration:
+## Run locally
 
-```js
-const GITHUB_DATA_URL = 'https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY/main/data/nepse_ohlc.json';
-const GITHUB_FAST_URL = 'https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPOSITORY/main/data/nepse_ohlc_fast.json';
+```bash
+python3 -m pip install -r requirements.txt
+python3 -m unittest discover -s tests -p 'test_*.py'
+python3 -m http.server 8000
 ```
 
-Replace `YOUR_GITHUB_USERNAME` and `YOUR_REPOSITORY` with the real repository owner and name. The HTML can then be served from GitHub Pages or another static host. Raw GitHub URLs are public-read URLs; do not place private credentials in the HTML or JSON files.
+Then open `http://localhost:8000/`. Opening `index.html` directly with `file://` can be blocked by browser CORS rules. The local chart should load the chunk manifest and yearly repository JSON files, then display multiple years of candles.
+
+## What was removed
+
+The clean `index.html` contains no `script.google.com`, Google Sheets, Apps Script endpoint, or paid API data call. The other original toolkit tabs were not copied into this clean page because their independent features depended on separate Apps Script backends and data contracts. This clean version intentionally focuses on the requested SMC Chart and GitHub-hosted NEPSE OHLC data.
 
 ## References
 
 [1]: https://www.sharesansar.com/market "ShareSansar Market"
 [2]: https://www.sharesansar.com/today-share-price "ShareSansar Today Share Price"
 [3]: https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions "GitHub Actions workflow syntax"
-
-## Important scope decision
-
-The current implementation automates the **SMC Chart data only**, as requested. It does not remove or migrate the separate Apps Script endpoints used by SmartMoney Footprint, Broker Accumulation, Stock Scanner, Broker Bias, Risk Plan, or other tabs. Those can be migrated later one tab at a time using the same repository pattern.

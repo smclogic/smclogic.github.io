@@ -229,8 +229,10 @@ def load_rows(path: Path) -> list[dict[str, Any]]:
 def merge_row(rows: list[dict[str, Any]], new_row: dict[str, Any]) -> list[dict[str, Any]]:
     by_date = {str(row.get("Date"))[:10]: dict(row) for row in rows if row.get("Date")}
     date = str(new_row["Date"])[:10]
-    # Replace the same date so a later run can repair a partial intraday scrape.
-    by_date[date] = dict(new_row)
+    # Merge the same date field-by-field so a partial fresh scrape cannot erase
+    # historical OHLC/volume fields imported from the Google Sheet.
+    existing = by_date.setdefault(date, {"Date": date})
+    existing.update({key: value for key, value in new_row.items() if value not in (None, "")})
     return [by_date[key] for key in sorted(by_date)]
 
 
