@@ -1,11 +1,12 @@
 {
   "source": {
-    "historical_seed": "newnepsechartwithvolumewebsitemaausebhaeraachayopani5.18.2026.xlsx"
+    "market": "https://www.sharesansar.com/market",
+    "prices": "https://www.sharesansar.com/today-share-price"
   },
-  "updated_at_utc": "2026-08-24T14:22:46Z",
-  "latest_trading_date": "2026-08-24",
-  "history_rows": 2216,
-  "latest_symbol_count": 350,
+  "updated_at_utc": "2026-08-27T03:15:10Z",
+  "latest_trading_date": "2026-08-26",
+  "history_rows": 1,
+  "latest_symbol_count": 347,
   "latest_index_count": 18,
   "format": "SMC Toolkit wide rows: Date, Index - Open, SYMBOL-Open, ..."
 }
