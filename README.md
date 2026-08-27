@@ -31,7 +31,7 @@ The chart reads `data/chunks/manifest.json`, fetches all yearly chunks, and comb
 
 The historical seed comes from the user’s Google Sheets XLSX export. Future daily rows are collected from public tables on [ShareSansar Market][1] for NEPSE indices and sub-indices, and [ShareSansar Today Share Price][2] for listed-company daily OHLC and volume. This is a free public-page collection method, not a licensed NEPSE API. If a source website changes its table layout or access behavior, the parser may need maintenance.
 
-The daily updater merges each fresh row field-by-field into the matching date. It does not replace the entire historical row, so a partial live response cannot erase older OHLC/volume fields imported from the workbook. If the source returns too few symbols or malformed data, the workflow fails before publishing a partial replacement.
+The daily updater merges each fresh row field-by-field into the matching date. It does not replace the entire historical row, so a partial live response cannot erase older OHLC/volume fields imported from the workbook. If the source returns too few symbols or malformed data, the workflow fails before publishing a partial replacement. Its scheduler matches the existing Apps Script and runs Monday through Friday; Saturday and Sunday are skipped. It also exits cleanly without changing files when the public source date is stale, missing, or has no valid current-session data, which covers public holidays without creating empty commits.
 
 ## One-time Google Sheet import
 
@@ -49,7 +49,7 @@ Upload the complete contents of this folder to the root of the `smclogic.github.
 
 In **Settings → Actions → General**, make sure workflow permissions allow **Read and write permissions** for repository contents. Then open **Actions → Daily NEPSE OHLC update → Run workflow → Run workflow**. A successful run will update only the `data/` files. It will not replace or modify unrelated website files.
 
-The scheduled job runs at `12:30 UTC`, which is `18:15 Nepal time`, Sunday through Thursday. GitHub may delay scheduled jobs, so the manual run remains available.
+The scheduled job runs at `12:30 UTC`, which is `18:15 Nepal time`, Monday through Friday, matching the Apps Script’s `runDaily()` weekend guard. GitHub may delay scheduled jobs, so the manual run remains available. A manual run on a non-trading day or public holiday is safe: the Python date/source guard returns a no-op and the commit step finds no data changes.
 
 ## Run locally
 
