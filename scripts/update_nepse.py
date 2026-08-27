@@ -24,6 +24,7 @@ from typing import Any, Iterable
 from zoneinfo import ZoneInfo
 
 import requests
+from data_chunks import write_year_chunks
 from bs4 import BeautifulSoup
 
 MARKET_URL = "https://www.sharesansar.com/market"
@@ -41,6 +42,10 @@ SYMBOL_METRICS = ("Open", "High", "Low", "Close", "Volume")
 
 class DataError(RuntimeError):
     """Raised when a source response is incomplete or cannot be parsed."""
+
+
+class NoTradingData(DataError):
+    """Raised when the public source has no current-session market data."""
 
 
 @dataclass(frozen=True)
@@ -109,8 +114,9 @@ def extract_trading_date(market_html: str) -> str:
     match = re.search(r"As\s+of[^0-9]*(\d{4}-\d{2}-\d{2})", market_html, flags=re.I)
     if match:
         return match.group(1)
-    # Fallback is only used if the source omits its visible date.
-    return datetime.now(NPT).date().isoformat()
+    # Never assume today when the source omits its date: a stale/holiday page
+    # must not be published as a new trading-day row.
+    raise NoTradingData("Market page did not expose an explicit trading date")
 
 
 def parse_market_page(market_html: str) -> tuple[str, dict[str, dict[str, Any]]]:
@@ -152,7 +158,7 @@ def parse_market_page(market_html: str) -> tuple[str, dict[str, dict[str, Any]]]
                 entity[output_key] = number(cells[positions[source_key]])
 
     if not entities:
-        raise DataError("No NEPSE index/sub-index rows found on the market page")
+        raise NoTradingData("No NEPSE index/sub-index rows found on the market page")
     return date, entities
 
 
@@ -183,7 +189,7 @@ def parse_price_page(price_html: str) -> dict[str, dict[str, Any]]:
             if all(isinstance(record[k], (int, float)) and record[k] > 0 for k in ("Open", "High", "Low", "Close")):
                 result[symbol] = record
         if not result:
-            raise DataError("No valid symbol OHLC rows found on the price page")
+            raise NoTradingData("No valid symbol OHLC rows found on the price page")
         return result
     raise DataError("Individual-share price table not found")
 
@@ -215,15 +221,33 @@ def collect_snapshot(session: requests.Session, timeout: int = 30) -> SourceSnap
 
 
 def load_rows(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
+    """Load legacy monolithic JSON or the GitHub-friendly yearly chunks."""
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise DataError(f"Invalid JSON in {path}: {exc}") from exc
+        if not isinstance(data, list):
+            raise DataError(f"Expected a JSON array in {path}")
+        return [row for row in data if isinstance(row, dict) and row.get("Date")]
+
+    chunk_dir = path.parent / "chunks"
+    manifest_path = chunk_dir / "manifest.json"
+    if not manifest_path.exists():
         return []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise DataError(f"Invalid JSON in {path}: {exc}") from exc
-    if not isinstance(data, list):
-        raise DataError(f"Expected a JSON array in {path}")
-    return [row for row in data if isinstance(row, dict) and row.get("Date")]
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        files = manifest.get("files", [])
+        if not isinstance(files, list):
+            raise ValueError("files is not a list")
+        rows: list[dict[str, Any]] = []
+        for name in files:
+            data = json.loads((chunk_dir / str(name)).read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                rows.extend(row for row in data if isinstance(row, dict) and row.get("Date"))
+        return sorted(rows, key=lambda row: str(row.get("Date", "")))
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        raise DataError(f"Invalid chunked history in {chunk_dir}: {exc}") from exc
 
 
 def merge_row(rows: list[dict[str, Any]], new_row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -261,7 +285,10 @@ def write_outputs(root: Path, rows: list[dict[str, Any]], snapshot: SourceSnapsh
     history_dir = data_dir / "history"
     columns = ordered_columns(rows)
 
-    write_json(data_dir / "nepse_ohlc.json", rows)
+    write_year_chunks(root, rows)
+    legacy_full = data_dir / "nepse_ohlc.json"
+    if legacy_full.exists():
+        legacy_full.unlink()
     write_csv(data_dir / "nepse_ohlc.csv", rows, columns)
     write_json(data_dir / "latest.json", snapshot.row)
     write_csv(data_dir / "latest.csv", [snapshot.row], columns)
@@ -285,6 +312,16 @@ def write_outputs(root: Path, rows: list[dict[str, Any]], snapshot: SourceSnapsh
     write_json(data_dir / "manifest.json", metadata)
 
 
+def is_nepse_scheduled_day(day) -> bool:
+    """Return True for Monday–Friday, matching the existing Apps Script trigger."""
+    return day.weekday() in {0, 1, 2, 3, 4}
+
+
+def should_publish_snapshot(snapshot: SourceSnapshot, today_npt) -> bool:
+    """Allow writes only when source data is for today's NPT trading date."""
+    return is_nepse_scheduled_day(today_npt) and snapshot.trading_date == today_npt.isoformat()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="Repository root")
@@ -292,10 +329,21 @@ def main() -> int:
     parser.add_argument("--min-symbols", type=int, default=100)
     args = parser.parse_args()
 
+    today_npt = datetime.now(NPT).date()
+    if not is_nepse_scheduled_day(today_npt):
+        print(f"No-op: {today_npt.isoformat()} is Saturday/Sunday; schedule is Monday-Friday per the existing Apps Script.")
+        return 0
+
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"})
     try:
         snapshot = collect_snapshot(session, timeout=args.timeout)
+        if not should_publish_snapshot(snapshot, today_npt):
+            print(
+                f"No-op: source latest date is {snapshot.trading_date}, not today {today_npt.isoformat()}; "
+                "likely a public holiday or no completed trading session."
+            )
+            return 0
         if snapshot.symbol_count < args.min_symbols:
             raise DataError(
                 f"Only {snapshot.symbol_count} valid symbols found; refusing to publish a partial scrape "
@@ -308,6 +356,9 @@ def main() -> int:
             f"Updated {snapshot.trading_date}: {snapshot.index_count} indices, "
             f"{snapshot.symbol_count} symbols, {len(rows)} history rows"
         )
+        return 0
+    except NoTradingData as exc:
+        print(f"No-op: {exc}; no current trading data to publish.")
         return 0
     except (requests.RequestException, DataError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
