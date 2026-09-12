@@ -3051,7 +3051,7 @@ body::before{
 .ss-instruction-bar strong{color:var(--accent);font-weight:700;}
 
 /* INPUT GRID */
-.ss-input-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+.ss-input-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-bottom:20px;}
 @media(max-width:640px){.ss-input-grid{grid-template-columns:1fr;}}
 .ss-input-panel{background:var(--surface);border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color .2s,box-shadow .2s;box-shadow:var(--shadow-sm);}
 .ss-input-panel:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft);}
@@ -3277,7 +3277,7 @@ select.ss-date-sel:focus{border-color:var(--accent);}
   </div>
 
   <div class="ss-instruction-bar">
-    <strong>HOW TO USE:</strong> Paste stocks one per line. For accumulation, format: <strong>SYMBOL FREQUENCY</strong> (e.g. <strong>NHPC 6</strong>). Run Analysis → Save to Sheets.
+    <strong>HOW TO USE:</strong> Paste stocks one per line. For accumulation, format: <strong>SYMBOL FREQUENCY</strong> (e.g. <strong>NHPC 6</strong>). The Fundamental list is optional. Run Analysis → Save to Sheets.
   </div>
 
   <div class="ss-input-grid">
@@ -3298,6 +3298,15 @@ select.ss-date-sel:focus{border-color:var(--accent);}
       <textarea id="ss-accumInput" class="ss-textarea" placeholder="NHPC 6&#10;SHIVM 5&#10;RSML 4&#10;SOHL 4&#10;HFIN 4&#10;API 3&#10;EBL 3"></textarea>
       <div class="ss-format-hint">▸ Format: SYMBOL FREQUENCY — e.g. "NHPC 6" or just "NHPC"</div>
     </div>
+    <div class="ss-input-panel">
+      <div class="ss-panel-header">
+        <div class="ss-panel-num">C</div>
+        <div class="ss-panel-title">Fundamentally Strong Stock List</div>
+        <div class="ss-panel-sub">Optional · 1 per line</div>
+      </div>
+      <textarea id="ss-fundamentalInput" class="ss-textarea" placeholder="NABIL&#10;UNL&#10;HDL&#10;CIT&#10;NIFRA"></textarea>
+      <div class="ss-format-hint">▸ Optional: leave empty to use A ∩ B only</div>
+    </div>
   </div>
 
   <div class="ss-btn-row">
@@ -3317,7 +3326,7 @@ select.ss-date-sel:focus{border-color:var(--accent);}
 
   <div id="ss-results">
     <div class="ss-results-header">
-      <div class="ss-results-title">▸ Analysis Result (A ∩ B)</div>
+      <div class="ss-results-title" id="ss-resultsTitle">▸ Analysis Result (A ∩ B)</div>
       <div class="ss-results-actions"><span class="ss-results-count" id="ss-resultsCount"></span><button class="ss-copy-btn" id="ss-copyBtn" onclick="ssCopyResults()" title="Copy visible symbols (one per line) — paste vertically into Google Sheets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span>Copy</span></button></div>
     </div>
     <div class="ss-sector-filters" id="ss-sectorFilters"></div>
@@ -3400,6 +3409,12 @@ function ssGetSector(sym) { return SS_SECTOR_MAP[sym.toUpperCase()] || 'Unknown'
 
 let ssAllResults = [], ssActiveFilter = 'ALL';
 
+function openSMCChartSymbol(symbol) {
+  const name = String(symbol || '').trim().toUpperCase();
+  if (!name) return;
+  try { window.parent.postMessage({ type: 'smc-open-symbol', symbol: name }, '*'); } catch (_) {}
+}
+
 function ssParseLines(t) { return t.split('\\n').map(l => l.trim()).filter(Boolean); }
 
 function ssSectorTag(sector) {
@@ -3418,9 +3433,10 @@ function ssHistoryTableRow(sym, freq, sector, chartHref, idx) {
   return \`<tr>
     <td style="padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted-light)">\${idx + 1}</td>
     <td style="padding:10px 16px">
-      <a class="ss-stock-link" href="\${chartHref}" target="_blank" rel="noopener">\${sym}
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      </a>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1">
+        <a class="ss-stock-link" href="#" data-symbol="\${sym}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" title="Open \${sym} in SMC Chart">\${sym} <small style="font-size:8px;color:#60a5fa">SMC</small></a>
+        <a class="ss-stock-link" href="\${chartHref}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8" title="Open \${sym} in NepseAlpha">\${sym} <small style="font-size:8px;color:#fbbf24">NepseAlpha ↗</small></a>
+      </div>
     </td>
     <td style="padding:10px 16px;text-align:right"><span class="ss-freq-badge \${fc}">\${freq}</span></td>
     <td style="padding:10px 16px"><span class="ss-sector-tag" style="background:\${sc.bg};color:\${sc.color};border:1px solid \${sc.border}">\${sector}</span></td>
@@ -3430,6 +3446,9 @@ function ssHistoryTableRow(sym, freq, sector, chartHref, idx) {
 function ssRunAnalysis() {
   const turnoverLines = ssParseLines(document.getElementById('ss-turnoverInput').value);
   const accumLines    = ssParseLines(document.getElementById('ss-accumInput').value);
+  const fundamentalLines = ssParseLines(document.getElementById('ss-fundamentalInput').value);
+  const fundamentalSet = new Set(fundamentalLines.map(l => l.split(/\\s+/)[0].toUpperCase()));
+  const hasFundamentalList = fundamentalSet.size > 0;
   const turnoverSet   = new Set(turnoverLines.map(l => l.split(/\\s+/)[0].toUpperCase()));
   const accumMap = {};
   for (const line of accumLines) {
@@ -3440,9 +3459,11 @@ function ssRunAnalysis() {
   }
   const results = [];
   for (const sym of Object.keys(accumMap))
-    if (turnoverSet.has(sym)) results.push({ symbol: sym, freq: accumMap[sym], sector: ssGetSector(sym) });
+    if (turnoverSet.has(sym) && (!hasFundamentalList || fundamentalSet.has(sym))) results.push({ symbol: sym, freq: accumMap[sym], sector: ssGetSector(sym) });
   results.sort((a, b) => b.freq - a.freq);
   ssAllResults = results;
+  const title = document.getElementById('ss-resultsTitle');
+  if (title) title.textContent = hasFundamentalList ? '▸ Analysis Result (A ∩ B ∩ C)' : '▸ Analysis Result (A ∩ B)';
   ssActiveFilter = 'ALL';
   ssRenderResults();
   document.getElementById('ss-results').className = 'visible';
@@ -3466,10 +3487,10 @@ function ssRenderResults() {
   count.textContent = \`\${results.length} match\${results.length !== 1 ? 'es' : ''}\`;
   body.innerHTML = results.map((r, i) => \`<tr>
     <td class="ss-rank-num">\${i + 1}</td>
-    <td><a class="ss-stock-link" href="https://nepsealpha.com/trading/chart?symbol=\${r.symbol}" target="_blank" rel="noopener">
-      \${r.symbol}
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-    </a></td>
+    <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1">
+      <a class="ss-stock-link" href="#" data-symbol="\${r.symbol}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" title="Open \${r.symbol} in SMC Chart">\${r.symbol} <small style="font-size:8px;color:#60a5fa">SMC</small></a>
+      <a class="ss-stock-link" href="https://nepsealpha.com/trading/chart?symbol=\${encodeURIComponent(r.symbol)}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8" title="Open \${r.symbol} in NepseAlpha">\${r.symbol} <small style="font-size:8px;color:#fbbf24">NepseAlpha ↗</small></a>
+    </div></td>
     <td class="right">\${ssFreqBadge(r.freq)}</td>
     <td>\${ssSectorTag(r.sector)}</td>
   </tr>\`).join('');
@@ -12150,6 +12171,14 @@ function fsShow(i){
     .alert.error { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.2); color: #fca5a5; }
     .alert.error svg { color: var(--danger); flex-shrink: 0; margin-top: 1px; }
     .loading-wrap { margin-top: 20px; }
+    #btn-scan { position:relative; min-width:170px; transition:opacity .18s ease, transform .18s ease, background .18s ease; }
+    #btn-scan .scan-spinner { width:15px; height:15px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:outperformerScanSpin .72s linear infinite; display:none; flex:0 0 auto; }
+    #btn-scan.is-scanning { opacity:.82; cursor:wait; }
+    #btn-scan.is-scanning .scan-spinner { display:inline-block; }
+    #btn-scan.is-scanning .scan-default-label { display:none; }
+    #btn-scan .scan-loading-label { display:none; }
+    #btn-scan.is-scanning .scan-loading-label { display:inline; }
+    @keyframes outperformerScanSpin { to { transform:rotate(360deg); } }
     .skel {
       background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
       background-size: 200%; border-radius: 10px; animation: shimmer 1.5s infinite;
@@ -12157,13 +12186,20 @@ function fsShow(i){
     @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
     /* ── BAR CHART ── */
-    .chart-inner { overflow-x: auto; padding-bottom: 8px; }
-    .chart-bars  { display: flex; gap: 10px; align-items: flex-end; padding: 16px 0 4px; min-width: fit-content; }
-    .bar-group   { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .chart-inner { overflow-x: auto; padding: 8px 0 12px; position:relative; }
+    .chart-bars  { display: flex; gap: 12px; align-items: flex-end; padding: 24px 12px 6px; min-width: fit-content; min-height: 220px; background: repeating-linear-gradient(to bottom, transparent 0, transparent 43px, rgba(148,163,184,.10) 44px, transparent 45px); border-bottom: 1px solid var(--border); }
+    .bar-group   { display: flex; flex-direction: column; align-items: center; gap: 5px; position:relative; padding:0 2px; }
+    .bar-group:hover { background: rgba(148,163,184,.08); border-radius: 7px; }
     .bar-cols    { display: flex; gap: 3px; align-items: flex-end; }
-    .bar { width: 18px; border-radius: 3px 3px 0 0; min-height: 3px; transition: opacity 0.15s; }
-    .bar:hover { opacity: 0.8; }
-    .bar-label { font-size: 10px; font-family: var(--mono); color: var(--text-muted); text-align: center; white-space: nowrap; max-width: 60px; overflow: hidden; text-overflow: ellipsis; }
+    .bar { width: 19px; border-radius: 3px 3px 0 0; min-height: 3px; transition: opacity 0.15s, filter 0.15s; position:relative; }
+    .bar:hover { opacity: 0.88; filter:brightness(1.18); }
+    .bar-value { font-size: 8px; font-family: var(--mono); color: var(--text-muted); white-space:nowrap; transform:translateY(-2px); }
+    .bar-label { font-size: 10px; font-family: var(--mono); color: var(--text-muted); text-align: center; white-space: nowrap; max-width: 70px; overflow: hidden; text-overflow: ellipsis; }
+    .chart-tooltip { position:fixed; z-index:9999; display:none; min-width:225px; max-width:290px; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:rgba(15,23,42,.97); box-shadow:0 10px 28px rgba(0,0,0,.35); color:var(--text); pointer-events:none; font-size:11px; line-height:1.55; }
+    .chart-tooltip strong { color:var(--primary); font-family:var(--mono); font-size:13px; }
+    .chart-tooltip .tt-row { display:flex; justify-content:space-between; gap:16px; border-top:1px solid rgba(148,163,184,.14); padding-top:3px; margin-top:3px; }
+    .chart-tooltip .tt-label { color:var(--text-muted); }
+    .chart-tooltip .tt-val { font-family:var(--mono); font-weight:700; }
     .chart-legend { display: flex; gap: 16px; padding: 8px 0; flex-wrap: wrap; }
     .legend-item  { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-muted); }
     .legend-dot   { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
@@ -12231,8 +12267,10 @@ function fsShow(i){
           <input type="date" id="scan-end" />
         </div>
         <button onclick="runScan()" id="btn-scan">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          Scan Outperformers
+          <span class="scan-spinner" aria-hidden="true"></span>
+          <svg class="scan-default-label" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <span class="scan-default-label">Scan Outperformers</span>
+          <span class="scan-loading-label">Scanning…</span>
         </button>
       </div>
     </div>
@@ -12275,6 +12313,10 @@ function fsShow(i){
         <div class="chart-inner"><div class="chart-bars" id="chart-bars"></div></div>
       </div>
 
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 8px;flex-wrap:wrap;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Outperformer Results</div>
+        <button id="scan-copy-symbols" class="btn-secondary" onclick="copyOutperformerSymbols('scan',this)" title="Copy all outperformer symbols one per line" style="padding:7px 12px;">📋 Copy symbols</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -12459,6 +12501,10 @@ function fsShow(i){
         </div>
       </div>
 
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:18px 0 8px;flex-wrap:wrap;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Multi-Stock Results</div>
+        <button id="multi-copy-symbols" class="btn-secondary" onclick="copyOutperformerSymbols('multi',this)" title="Copy all checked symbols one per line" style="padding:7px 12px;">📋 Copy symbols</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -12486,6 +12532,16 @@ function fsShow(i){
 
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbzCdRoOX-ERYA9lCMshT-dDsB4k3eFbA03fm5dSbmYc7bzB4c-XJEkk77R2PwEv9N1Z/exec";
+  let _outperformerScanRows = [];
+  let _outperformerMultiRows = [];
+
+  // Send a selected Outperformer symbol to the root page so it can open
+  // the embedded SMC Chart without leaving this application.
+  function openSMCChartSymbol(symbol) {
+    const name = String(symbol || '').trim().toUpperCase();
+    if (!name) return;
+    try { window.parent.postMessage({ type: 'smc-open-symbol', symbol: name }, '*'); } catch (_) {}
+  }
 
   // ── Stock Cap Lookup ─────────────────────────────────────────────────────
   const CAP_DATA = {
@@ -12567,7 +12623,9 @@ function fsShow(i){
     document.getElementById("scan-error").style.display   = "none";
     document.getElementById("scan-loading").style.display = "block";
     document.getElementById("scan-results").style.display = "none";
-    document.getElementById("btn-scan").disabled = true;
+    const scanBtn = document.getElementById("btn-scan");
+    scanBtn.disabled = true;
+    scanBtn.classList.add("is-scanning");
     try {
       const d = await callGAS({ action: "scan", startDate: sd, endDate: ed });
       if (d.status === "error") throw new Error(d.message || "Scan failed");
@@ -12577,11 +12635,16 @@ function fsShow(i){
       document.getElementById("scan-error").style.display = "flex";
     } finally {
       document.getElementById("scan-loading").style.display = "none";
-      document.getElementById("btn-scan").disabled = false;
+      const scanBtn = document.getElementById("btn-scan");
+      scanBtn.disabled = false;
+      scanBtn.classList.remove("is-scanning");
     }
   }
 
   function renderScan(d) {
+    _outperformerScanRows = Array.isArray(d.results) ? d.results.slice() : [];
+    const scanCopyBtn = document.getElementById('scan-copy-symbols');
+    if (scanCopyBtn) { scanCopyBtn.disabled = !_outperformerScanRows.length; scanCopyBtn.textContent = _outperformerScanRows.length ? '📋 Copy ' + _outperformerScanRows.length + ' symbols' : '📋 Copy symbols'; }
     document.getElementById("stat-period").textContent = d.startDate + "\\n→  " + d.endDate;
     const ne = document.getElementById("stat-nepse");
     ne.textContent = fmtPct(d.X); ne.className = "stat-value " + pctCls(d.X);
@@ -12599,7 +12662,7 @@ function fsShow(i){
         const tr = document.createElement("tr");
         tr.innerHTML = \`
           <td><span class="rank-badge \${i < 3 ? "top" : ""}">\${i+1}</span></td>
-          <td><a class="sym-badge" href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${r.symbol}" target="_blank" rel="noopener">\${r.symbol}</a></td>
+          <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1;"><a href="#" data-symbol="\${r.symbol}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" class="sym-badge" title="Open \${r.symbol} in SMC Chart">\${r.symbol} <small style="font-size:8px;color:#60a5fa;">SMC</small></a><a href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${encodeURIComponent(r.symbol)}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8;" title="Open \${r.symbol} in NepseAlpha">\${r.symbol} <small style="font-size:8px;color:#fbbf24;">NepseAlpha ↗</small></a></div></td>
           <td>\${capBadgeHtml(r.symbol)}</td>
           <td style="color:var(--text-muted);font-size:12px">\${r.sector}</td>
           <td style="color:var(--text-muted);font-size:12px">\${r.subIndexName}</td>
@@ -12614,19 +12677,52 @@ function fsShow(i){
     document.getElementById("scan-results").style.display = "block";
   }
 
+  function copyOutperformerSymbols(kind, btn) {
+    const rows = kind === 'multi' ? _outperformerMultiRows : _outperformerScanRows;
+    const symbols = [...new Set(rows.map(r => String(r && (r.symbol || r.sym) || '').trim().toUpperCase()).filter(Boolean))];
+    if (!symbols.length) { if (btn) { const old=btn.textContent; btn.textContent='Nothing to copy'; setTimeout(()=>btn.textContent=old,1600); } return; }
+    const text = symbols.join('\\n');
+    const copied = () => { if (!btn) return; const old=btn.textContent; btn.textContent='✅ Copied '+symbols.length+'!'; btn.classList.add('copied'); setTimeout(()=>{btn.textContent=old;btn.classList.remove('copied');},1800); };
+    const fallback = () => { const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.focus(); ta.select(); try { document.execCommand('copy'); copied(); } finally { document.body.removeChild(ta); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(copied).catch(fallback); else fallback();
+  }
+
   function renderChart(rows) {
     const c = document.getElementById("chart-bars"); c.innerHTML = "";
-    const maxV = Math.max(...rows.flatMap(r => [Math.abs(r.X), Math.abs(r.Y), Math.abs(r.Z)]), 1);
+    const host = c.parentElement;
+    let tip = host.querySelector('.chart-tooltip');
+    if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tooltip'; host.appendChild(tip); }
+    const maxV = Math.max(...rows.flatMap(r => [Math.abs(Number(r.X)||0), Math.abs(Number(r.Y)||0), Math.abs(Number(r.Z)||0)]), 1);
+    const showTip = (r, ev) => {
+      const sectorEdge = (Number(r.Z)||0) - (Number(r.Y)||0);
+      const marketEdge = (Number(r.Z)||0) - (Number(r.X)||0);
+      tip.innerHTML = '<strong>' + String(r.symbol || '') + '</strong>' +
+        '<div style="color:var(--text-muted);margin:2px 0 5px;">' + String(r.sector || '') + '</div>' +
+        '<div class="tt-row"><span class="tt-label">NEPSE Index</span><span class="tt-val">' + fmtPct(r.X) + '</span></div>' +
+        '<div class="tt-row"><span class="tt-label">Sector / Sub-index</span><span class="tt-val">' + fmtPct(r.Y) + '</span></div>' +
+        '<div class="tt-row"><span class="tt-label">Stock return</span><span class="tt-val" style="color:#10b981">' + fmtPct(r.Z) + '</span></div>' +
+        '<div class="tt-row"><span class="tt-label">Vs sector</span><span class="tt-val">' + fmtPct(sectorEdge) + '</span></div>' +
+        '<div class="tt-row"><span class="tt-label">Vs market</span><span class="tt-val">' + fmtPct(marketEdge) + '</span></div>' +
+        '<div class="tt-row"><span class="tt-label">Price</span><span class="tt-val">' + fmt2(r.startPrice) + ' → ' + fmt2(r.endPrice) + '</span></div>';
+      tip.style.display='block';
+      tip.style.left=Math.min(ev.clientX+14, window.innerWidth-305)+'px';
+      tip.style.top=Math.min(ev.clientY+14, window.innerHeight-190)+'px';
+    };
     rows.forEach(r => {
       const g = document.createElement("div"); g.className = "bar-group";
       const cols = document.createElement("div"); cols.className = "bar-cols";
-      [[r.X,"#64748b"],[r.Y,"#3b82f6"],[r.Z,"#10b981"]].forEach(([v, col]) => {
+      [[r.X,'#64748b','#cbd5e1'],[r.Y,'#3b82f6','#93c5fd'],[r.Z,'#10b981','#6ee7b7']].forEach(([v, positiveCol, negativeCol]) => {
+        const num = Number(v) || 0;
+        const wrap = document.createElement('div'); wrap.style.display='flex'; wrap.style.flexDirection='column'; wrap.style.alignItems='center';
+        const value = document.createElement('div'); value.className='bar-value'; value.textContent=fmtPct(num); value.style.color = num < 0 ? negativeCol : positiveCol;
         const b = document.createElement("div"); b.className = "bar";
-        b.style.height = Math.max(Math.abs(v) / maxV * 160, 3) + "px";
-        b.style.background = col; b.title = fmtPct(v); cols.appendChild(b);
+        b.style.height = Math.max(Math.abs(num) / maxV * 160, 3) + "px";
+        b.style.background = num < 0 ? negativeCol : positiveCol;
+        b.style.boxShadow = '0 0 0 1px ' + (num < 0 ? negativeCol : positiveCol) + '55';
+        b.title = fmtPct(num); wrap.appendChild(value); wrap.appendChild(b); cols.appendChild(wrap);
       });
       const lbl = document.createElement("div"); lbl.className = "bar-label"; lbl.textContent = r.symbol;
-      g.appendChild(cols); g.appendChild(lbl); c.appendChild(g);
+      g.appendChild(cols); g.appendChild(lbl); g.addEventListener('mouseenter', ev=>showTip(r,ev)); g.addEventListener('mousemove', ev=>showTip(r,ev)); g.addEventListener('mouseleave', ()=>{tip.style.display='none';}); c.appendChild(g);
     });
   }
 
@@ -12664,7 +12760,7 @@ function fsShow(i){
     const v = VM[d.verdict] || { cls: "vd-under", label: d.verdict };
     const card = document.getElementById("verdict-card");
     card.className = "verdict-card " + v.cls;
-    document.getElementById("v-sym").innerHTML = \`<a href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${d.symbol}" target="_blank" rel="noopener">\${d.symbol}</a>\`;
+    document.getElementById("v-sym").innerHTML = \`<div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1;"><a href="#" data-symbol="\${d.symbol}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" title="Open \${d.symbol} in SMC Chart">\${d.symbol} <small style="font-size:9px;color:#60a5fa;">SMC</small></a><a href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${encodeURIComponent(d.symbol)}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8;" title="Open \${d.symbol} in NepseAlpha">\${d.symbol} <small style="font-size:9px;color:#fbbf24;">NepseAlpha ↗</small></a></div>\`;
     document.getElementById("v-badge").textContent  = v.label;
     const capLabel = capText(d.symbol);
     document.getElementById("v-meta").innerHTML = (capLabel ? \`\${capBadgeHtml(d.symbol)}&ensp;\` : "") + d.sector + "  ·  " + d.subIndexName;
@@ -12795,6 +12891,9 @@ function fsShow(i){
 
     // Sort ok rows by Stock % (Z) descending
     okRows.sort((a, b) => b.Z - a.Z);
+    _outperformerMultiRows = okRows.slice();
+    const multiCopyBtn = document.getElementById('multi-copy-symbols');
+    if (multiCopyBtn) { multiCopyBtn.disabled = !_outperformerMultiRows.length; multiCopyBtn.textContent = _outperformerMultiRows.length ? '📋 Copy ' + _outperformerMultiRows.length + ' symbols' : '📋 Copy symbols'; }
 
     // Summary counts
     const counts = { OUTPERFORMER: 0, BEATS_SECTOR_ONLY: 0, BEATS_MARKET_ONLY: 0, UNDERPERFORMER: 0 };
@@ -12818,7 +12917,7 @@ function fsShow(i){
       if (d.verdict === "OUTPERFORMER") tr.style.background = "rgba(16,185,129,0.04)";
       tr.innerHTML = \`
         <td><span class="rank-badge \${d.verdict === "OUTPERFORMER" && rank <= 3 ? "top" : ""}">\${rank}</span></td>
-        <td><a class="sym-badge" href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${d.symbol}" target="_blank" rel="noopener">\${d.symbol}</a></td>
+        <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1;"><a href="#" data-symbol="\${d.symbol}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" class="sym-badge" title="Open \${d.symbol} in SMC Chart">\${d.symbol} <small style="font-size:8px;color:#60a5fa;">SMC</small></a><a href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${encodeURIComponent(d.symbol)}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8;" title="Open \${d.symbol} in NepseAlpha">\${d.symbol} <small style="font-size:8px;color:#fbbf24;">NepseAlpha ↗</small></a></div></td>
         <td>\${capBadgeHtml(d.symbol)}</td>
         <td style="color:var(--text-muted);font-size:12px">\${d.sector || "-"}</td>
         <td style="color:var(--text-muted);font-size:12px">\${d.subIndexName || "-"}</td>
@@ -12837,7 +12936,7 @@ function fsShow(i){
       tr.style.opacity = "0.55";
       tr.innerHTML = \`
         <td><span class="rank-badge">—</span></td>
-        <td><a class="sym-badge" href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${r.sym}" target="_blank" rel="noopener" style="opacity:0.5">\${r.sym}</a></td>
+        <td><div style="display:flex;flex-direction:column;align-items:flex-start;gap:2px;line-height:1.1;"><a href="#" data-symbol="\${r.sym}" onclick="event.preventDefault();openSMCChartSymbol(this.dataset.symbol)" class="sym-badge" title="Open \${r.sym} in SMC Chart" style="opacity:0.5">\${r.sym} <small style="font-size:8px;color:#60a5fa;">SMC</small></a><a href="https://nepsealpha.com/trading/chart?interval=1D&symbol=\${encodeURIComponent(r.sym)}" target="_blank" rel="noopener" style="font-size:10px;color:#94a3b8;opacity:0.7;" title="Open \${r.sym} in NepseAlpha">\${r.sym} <small style="font-size:8px;color:#fbbf24;">NepseAlpha ↗</small></a></div></td>
         <td>\${capBadgeHtml(r.sym)}</td>
         <td colspan="7" style="color:var(--danger);font-size:12px">\${r.error || "Unknown error"}</td>
         <td>\${verdictPill("ERROR")}</td>\`;
@@ -15449,6 +15548,14 @@ syncRiskRs();
         .bsl-sig-btn.active { background:rgba(163,230,53,0.12);border-color:#a3e635;color:#a3e635; }
         .bsl-wr-btn.active  { background:rgba(249,115,22,0.12);border-color:#f97316;color:#fb923c; }
         .bsl-sep { width:1px;height:18px;background:#1e2a1e;flex-shrink:0; }
+        .bsl-copy-btn {
+            padding:5px 10px;border-radius:6px;border:1px solid #38bdf8;
+            background:rgba(56,189,248,0.10);color:#38bdf8;font-size:10px;font-weight:700;
+            cursor:pointer;transition:all 0.15s;white-space:nowrap;
+        }
+        .bsl-copy-btn:hover { background:rgba(56,189,248,0.22);color:#bae6fd; }
+        .bsl-copy-btn.copied { background:rgba(34,197,94,0.22);border-color:#4ade80;color:#4ade80; }
+        .bsl-copy-btn:disabled { opacity:.45;cursor:not-allowed; }
         #bsl-run-btn {
             padding:5px 14px;border-radius:6px;border:1px solid #a3e635;
             background:rgba(163,230,53,0.12);color:#a3e635;font-size:12px;font-weight:700;
@@ -15634,6 +15741,11 @@ syncRiskRs();
         .liq-menu-fav { width:25px; height:25px; border:1px solid transparent; border-radius:4px; background:transparent; color:#7f93b5; cursor:pointer; font-size:14px; line-height:1; }
         .liq-menu-fav:hover, .liq-menu-fav.active { color:#fbbf24; background:rgba(251,191,36,.10); }
         .liq-menu-note { padding:5px 7px 2px; color:#7f93b5; font-size:9px; line-height:1.35; }
+        .liq-master { flex-shrink:0; letter-spacing:.4px; }
+        .liq-master.partial { opacity:.78; }
+        .liq-master.active-all { box-shadow:0 0 0 1px rgba(251,191,36,.35); }
+        body.light-theme .liq-master.partial { opacity:.92; }
+        body.light-theme .liq-master.active-all { box-shadow:0 0 0 1px rgba(217,119,6,.30); }
         body.light-theme .liq-menu-toggle { background:#f8fafc; border-color:#cbd5e1; color:#334155; }
         body.light-theme .liq-menu-toggle:hover, body.light-theme .liq-picker.open .liq-menu-toggle { background:#eef4fb; border-color:#64748b; color:#0f172a; }
         body.light-theme .liq-menu { background:#fff; border-color:#cbd5e1; box-shadow:0 8px 22px rgba(30,58,138,.18); }
@@ -16307,6 +16419,7 @@ syncRiskRs();
             <div class="legend">
                 <!-- BSL/SSL Liquidity Strategy group -->
                 <div class="liq-box">
+                    <button class="toggle-btn liq-master" id="tog-liq-all" style="--tc:#fbbf24;--tc-bg:rgba(251,191,36,0.14)" onclick="toggleLiquidityAll(event)" aria-pressed="false" title="Liquidity indicators master switch — show or hide BSL, SSL, BSL★, BUY and SELL at once">◌ LIQ Off</button>
                     <button class="toggle-btn" id="tog-bsl" style="--tc:#f97316;--tc-bg:rgba(249,115,22,0.12)" data-vis="bslLevel">■ BSL</button>
                     <div class="liq-picker" id="liq-picker">
                         <div class="liq-quick" id="liq-quick" aria-label="Favourite BSL and signal indicators"></div>
@@ -16350,7 +16463,9 @@ syncRiskRs();
                         <div class="compact-indicator-row"><button class="toggle-btn compact-indicator-option" id="tbos-pbos-btn" onclick="toggleTbosPbosVisibility();closeCompactIndicatorMenus()" aria-pressed="true" style="flex:1;text-align:left">PBOS</button></div>
                         <div class="compact-indicator-row"><button class="toggle-btn compact-indicator-option" id="tbos-choch-btn" onclick="toggleTbosChochVisibility();closeCompactIndicatorMenus()" aria-pressed="true" style="flex:1;text-align:left">OutPat CHoCH</button></div>
                         <div class="compact-indicator-row"><button class="toggle-btn compact-indicator-option" id="tbos-internal-choch-btn" onclick="toggleTbosInternalChochVisibility();closeCompactIndicatorMenus()" aria-pressed="true" style="flex:1;text-align:left">Internal CHoCH</button></div>
-                        <div class="compact-indicator-note">Toggle TBOS/Tshift from the main button. Use each row separately for history, Pbos, and CHoCH visibility.</div>
+                        <div class="compact-indicator-row"><button class="toggle-btn compact-indicator-option" id="tbos-fake-tshift-btn" onclick="toggleTbosFakeTshiftVisibility();closeCompactIndicatorMenus()" aria-pressed="true" style="flex:1;text-align:left">Fake Tshift</button></div>
+                        <div class="compact-indicator-row"><button class="toggle-btn compact-indicator-option" id="tbos-pshift-btn" onclick="toggleTbosPshiftVisibility();closeCompactIndicatorMenus()" aria-pressed="true" style="flex:1;text-align:left">Pshift System</button></div>
+                        <div class="compact-indicator-note">Toggle TBOS/Tshift from the main button. Use each row separately for history, Pbos, CHoCH, Fake Tshift, and Pshift System visibility.</div>
                     </div>
                 </div>
                 <span class="legend-sep">|</span>
@@ -16648,7 +16763,8 @@ syncRiskRs();
                     <textarea id="inout-custom-ta" placeholder="Enter stock symbols (one per line):&#10;GFCL&#10;NLICL&#10;NMB&#10;NABIL"></textarea>
                     <div style="display:flex;flex-direction:column;gap:7px;flex-shrink:0;">
                         <button id="inout-custom-scan-btn" onclick="runCustomScan()">&#x25BA; Analyze</button>
-                        <button onclick="document.getElementById('inout-custom-ta').value=''" style="padding:4px 12px;border-radius:5px;border:1px solid #2a2a4e;background:transparent;color:#666;font-size:11px;cursor:pointer;">Clear</button>
+                        <button id="inout-custom-history-btn" onclick="runInOutCustomAllHistory()" style="padding:5px 16px;border-radius:5px;border:1px solid #22d3ee;background:rgba(34,211,238,0.10);color:#a5f3fc;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">Show All Pattern History</button>
+                        <button onclick="clearInOutCustomHistory()" style="padding:4px 12px;border-radius:5px;border:1px solid #2a2a4e;background:transparent;color:#666;font-size:11px;cursor:pointer;">Clear</button>
                     </div>
                 </div>
                 <div id="inout-custom-status" style="margin-top:6px;font-size:10px;color:#5a3a7a;"></div>
@@ -16815,10 +16931,20 @@ syncRiskRs();
             <div id="stock-character-pattern-tabs" style="display:flex;align-items:center;gap:6px;padding:8px 18px;border-bottom:1px solid #4a3812;background:rgba(251,191,36,.07);flex-shrink:0;">
                 <span style="font-size:10px;color:#caa94a;font-weight:700;text-transform:lowercase;letter-spacing:.2px;margin-right:3px;">pattern:</span>
                 <button class="iop-btn stock-character-pattern-btn active" data-pattern="pbos" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #fbbf24;background:rgba(251,191,36,.16);color:#fde68a;font-size:11px;font-weight:700;cursor:pointer;">◉ PBOS Pattern</button>
-                <button class="iop-btn stock-character-pattern-btn" data-pattern="internal_choch" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ Internal CHOCH</button>
+                <button class="iop-btn stock-character-pattern-btn" data-pattern="internal_choch_type1" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ Internal CHOCH Type 1</button>
+                <button class="iop-btn stock-character-pattern-btn" data-pattern="internal_choch_type2" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ Internal CHOCH Type 2</button>
                 <button class="iop-btn stock-character-pattern-btn" data-pattern="outpat_choch" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ OutPat CHOCH</button>
+                <button class="iop-btn stock-character-pattern-btn" data-pattern="fake_tshift" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ Fake Tshift</button>
+                <button class="iop-btn stock-character-pattern-btn" data-pattern="pshift_system" onclick="stockCharacterSetPattern(this)" style="padding:6px 13px;border-radius:6px;border:1px solid #8a6b16;background:transparent;color:#d6b35a;font-size:11px;font-weight:700;cursor:pointer;">⚠ Pshift System</button>
             </div>
-            <div id="stock-character-scr-body" style="overflow-y:auto;flex:1;padding:0 0 16px;scrollbar-width:thin;scrollbar-color:#8a6b16 transparent;"><div style="padding:28px;text-align:center;color:#caa94a;font-size:12px;">Select a pattern above, then click ▶ Scan All to view its historical matches.</div></div>
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid rgba(138,107,22,.35);background:rgba(251,191,36,.035);flex-shrink:0;flex-wrap:wrap;">
+                <label for="stock-character-custom-list" style="font-size:10px;color:#caa94a;font-weight:700;white-space:nowrap;">Custom stock history</label>
+                <textarea id="stock-character-custom-list" rows="1" placeholder="Paste symbols one per line: NMB&#10;NBL&#10;RIDI" style="flex:1;min-width:260px;min-height:30px;max-height:64px;resize:vertical;padding:7px 9px;border-radius:6px;border:1px solid #8a6b16;background:#0f0d1b;color:#fde68a;font-size:11px;font-family:monospace;outline:none;"></textarea>
+                <button id="stock-character-custom-btn" onclick="runStockCharacterCustomHistory()" style="padding:6px 11px;border-radius:6px;border:1px solid #fbbf24;background:rgba(251,191,36,.14);color:#fde68a;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">Show All History</button>
+                <button onclick="clearStockCharacterCustomList()" style="padding:6px 9px;border-radius:6px;border:1px solid #5c4617;background:transparent;color:#caa94a;font-size:11px;cursor:pointer;white-space:nowrap;">Clear</button>
+                <span id="stock-character-custom-note" style="font-size:10px;color:#8b7a43;flex:0 0 100%;">Custom mode shows every confirmed PBOS, Internal CHoCH Type 1/2, OutPat CHoCH, Fake Tshift, and Pshift System occurrence for the entered symbols.</span>
+            </div>
+            <div id="stock-character-scr-body" style="overflow-y:auto;flex:1;padding:0 0 16px;scrollbar-width:thin;scrollbar-color:#8a6b16 transparent;"><div style="padding:28px;text-align:center;color:#caa94a;font-size:12px;">Select a pattern above, then click ▶ Scan All to view its historical matches, or enter custom symbols to show all character history.</div></div>
         </div>
 
         <style>
@@ -16920,6 +17046,7 @@ syncRiskRs();
                 <span class="bsl-title">■ BSL/SSL Buy Screener</span>
                 <span id="bsl-scr-date-tag" style="font-size:11px;color:#4a6a4a;font-weight:600;"></span>
                 <span id="bsl-scr-counts" style="font-size:11px;color:#4a6a4a;"></span>
+                <button id="bsl-copy-btn" class="bsl-copy-btn" onclick="bslCopyVisibleSymbols()" disabled title="Copy symbols from the current category, signal, and win-rate filters">📋 Copy symbols</button>
                 <span class="bsl-t2-note">🇳🇵 T+2 Settlement — NEPSE</span>
                 <button id="bsl-run-btn" onclick="runBslScreener()">▶ Scan All</button>
                 <button onclick="closeBslScreener()" style="background:none;border:none;color:#4a6a4a;font-size:18px;cursor:pointer;padding:0 0 0 4px;line-height:1;" title="Close">✕</button>
@@ -17081,11 +17208,7 @@ syncRiskRs();
 // ═══════════════════════════════════════════════════════════════
 //  CONFIG
 // ═══════════════════════════════════════════════════════════════
-const REPO_ORIGIN = (() => { try { return (window.top && window.top.location && window.top.location.origin && window.top.location.origin !== 'null') ? window.top.location.origin : window.location.origin; } catch (_) { return window.location.origin; } })();
-const GITHUB_DATA_URL = REPO_ORIGIN + '/data/nepse_ohlc.json';
-const GITHUB_FAST_URL = REPO_ORIGIN + '/data/nepse_ohlc_fast.json';
-const CHUNK_MANIFEST_URL = REPO_ORIGIN + '/data/chunks/manifest.json';
-const DATA_URL = CHUNK_MANIFEST_URL;
+const SHEET_URL = 'https://script.google.com/macros/s/AKfycbyFnbTJV4J5zzmpJeEItw-ZdTKfkhj90WwLrYkBa1wcnNhwldUQYqwcNJMKwBXfxQ1l/exec';
 let _loaderDeadlineReached = false;
 
 // Early guard is intentionally placed before chart/data functions: a CDN,
@@ -17097,7 +17220,7 @@ function showEarlyLoaderFailure(message) {
     if (error) error.classList.remove('hidden');
     const msg = document.getElementById('error-message'), hint = document.getElementById('error-hint');
     if (msg) msg.textContent = 'NEPSE app could not start: ' + (message || 'Unknown error');
-    if (hint) hint.textContent = 'Refresh after checking internet access and the repository data files.';
+    if (hint) hint.textContent = 'Refresh after checking internet access and the Apps Script endpoint.';
 }
 window.addEventListener('error', event => {
     if (event && event.error) showEarlyLoaderFailure(event.error.message || String(event.error));
@@ -17111,7 +17234,7 @@ setTimeout(() => {
     if (loading && !loading.classList.contains('hidden')) showEarlyLoaderFailure('Data loading timed out.');
 }, 60000);
 
-// Known index / sub-index names (from the repository JSON output)
+// Known index / sub-index names (from the Apps Script output)
 const MAIN_INDICES = ['Index', 'Sensitive Index', 'Float Index', 'Sensitive Float Index'];
 const SUB_INDICES  = [
     'Banking SubIndex', 'Development Bank Index', 'Finance Index',
@@ -17171,15 +17294,21 @@ let tbosTshiftShowHistory = false; // false = latest only; true = past structure
 let tbosTshiftPbosVisible = true;
 let tbosTshiftChochVisible = true;
 let tbosTshiftInternalChochVisible = true;
+let tbosTshiftFakeTshiftVisible = true;
+let tbosTshiftPshiftVisible = true;
 const TBOS_DISPLAY_PREF_KEY = 'smc_tbos_display_mode_v1';
 const TBOS_PBOS_VISIBILITY_PREF_KEY = 'smc_tbos_pbos_visibility_v1';
 const TBOS_CHOCH_VISIBILITY_PREF_KEY = 'smc_tbos_choch_visibility_v1';
 const TBOS_INTERNAL_CHOCH_VISIBILITY_PREF_KEY = 'smc_tbos_internal_choch_visibility_v1';
+const TBOS_FAKE_TSHIFT_VISIBILITY_PREF_KEY = 'smc_tbos_fake_tshift_visibility_v1';
+const TBOS_PSHIFT_VISIBILITY_PREF_KEY = 'smc_tbos_pshift_visibility_v1';
 function loadTbosTshiftDisplayMode() {
     try { tbosTshiftShowHistory = localStorage.getItem(TBOS_DISPLAY_PREF_KEY) === 'history'; } catch (e) {}
     try { tbosTshiftPbosVisible = localStorage.getItem(TBOS_PBOS_VISIBILITY_PREF_KEY) !== 'off'; } catch (e) {}
     try { tbosTshiftChochVisible = localStorage.getItem(TBOS_CHOCH_VISIBILITY_PREF_KEY) !== 'off'; } catch (e) {}
     try { tbosTshiftInternalChochVisible = localStorage.getItem(TBOS_INTERNAL_CHOCH_VISIBILITY_PREF_KEY) !== 'off'; } catch (e) {}
+    try { tbosTshiftFakeTshiftVisible = localStorage.getItem(TBOS_FAKE_TSHIFT_VISIBILITY_PREF_KEY) !== 'off'; } catch (e) {}
+    try { tbosTshiftPshiftVisible = localStorage.getItem(TBOS_PSHIFT_VISIBILITY_PREF_KEY) !== 'off'; } catch (e) {}
 }
 function saveTbosTshiftDisplayMode() {
     try { localStorage.setItem(TBOS_DISPLAY_PREF_KEY, tbosTshiftShowHistory ? 'history' : 'latest'); } catch (e) {}
@@ -17193,11 +17322,19 @@ function saveTbosChochVisibility() {
 function saveTbosInternalChochVisibility() {
     try { localStorage.setItem(TBOS_INTERNAL_CHOCH_VISIBILITY_PREF_KEY, tbosTshiftInternalChochVisible ? 'on' : 'off'); } catch (e) {}
 }
+function saveTbosFakeTshiftVisibility() {
+    try { localStorage.setItem(TBOS_FAKE_TSHIFT_VISIBILITY_PREF_KEY, tbosTshiftFakeTshiftVisible ? 'on' : 'off'); } catch (e) {}
+}
+function saveTbosPshiftVisibility() {
+    try { localStorage.setItem(TBOS_PSHIFT_VISIBILITY_PREF_KEY, tbosTshiftPshiftVisible ? 'on' : 'off'); } catch (e) {}
+}
 function updateTbosTshiftDisplayButton() {
     const historyBtn = document.getElementById('tbos-history-btn');
     const pbosBtn = document.getElementById('tbos-pbos-btn');
     const chochBtn = document.getElementById('tbos-choch-btn');
     const internalChochBtn = document.getElementById('tbos-internal-choch-btn');
+    const fakeTshiftBtn = document.getElementById('tbos-fake-tshift-btn');
+    const pshiftBtn = document.getElementById('tbos-pshift-btn');
     if (historyBtn) {
         historyBtn.textContent = tbosTshiftShowHistory ? '⌁ Past + Latest' : '⌁ Latest';
         historyBtn.classList.toggle('active', tbosTshiftShowHistory);
@@ -17224,6 +17361,20 @@ function updateTbosTshiftDisplayButton() {
         internalChochBtn.classList.toggle('off', !tbosTshiftInternalChochVisible);
         internalChochBtn.setAttribute('aria-pressed', String(tbosTshiftInternalChochVisible));
         internalChochBtn.title = tbosTshiftInternalChochVisible ? 'Hide In/Out PurpleOut and Down 1-2-3 Internal CHoCH markers.' : 'Show In/Out PurpleOut and Down 1-2-3 Internal CHoCH markers.';
+    }
+    if (fakeTshiftBtn) {
+        fakeTshiftBtn.textContent = 'Fake Tshift';
+        fakeTshiftBtn.classList.toggle('active', tbosTshiftFakeTshiftVisible);
+        fakeTshiftBtn.classList.toggle('off', !tbosTshiftFakeTshiftVisible);
+        fakeTshiftBtn.setAttribute('aria-pressed', String(tbosTshiftFakeTshiftVisible));
+        fakeTshiftBtn.title = tbosTshiftFakeTshiftVisible ? 'Hide YellowOut → Up 1-2-3 → close below the Up-2 level Fake Tshift markers.' : 'Show YellowOut → Up 1-2-3 → close below the Up-2 level Fake Tshift markers.';
+    }
+    if (pshiftBtn) {
+        pshiftBtn.textContent = 'Pshift System';
+        pshiftBtn.classList.toggle('active', tbosTshiftPshiftVisible);
+        pshiftBtn.classList.toggle('off', !tbosTshiftPshiftVisible);
+        pshiftBtn.setAttribute('aria-pressed', String(tbosTshiftPshiftVisible));
+        pshiftBtn.title = tbosTshiftPshiftVisible ? 'Hide PurpleOut → Internal CHoCH Type 2 → Up 1-2-3 Pshift System markers.' : 'Show PurpleOut → Internal CHoCH Type 2 → Up 1-2-3 Pshift System markers.';
     }
 }
 function toggleTbosTshiftMode() {
@@ -17258,6 +17409,18 @@ function toggleTbosChochVisibility() {
 function toggleTbosInternalChochVisibility() {
     tbosTshiftInternalChochVisible = !tbosTshiftInternalChochVisible;
     saveTbosInternalChochVisibility();
+    updateTbosTshiftDisplayButton();
+    if (chart && overlayCtx) requestAnimationFrame(drawMonthlyOverlay);
+}
+function toggleTbosFakeTshiftVisibility() {
+    tbosTshiftFakeTshiftVisible = !tbosTshiftFakeTshiftVisible;
+    saveTbosFakeTshiftVisibility();
+    updateTbosTshiftDisplayButton();
+    if (chart && overlayCtx) requestAnimationFrame(drawMonthlyOverlay);
+}
+function toggleTbosPshiftVisibility() {
+    tbosTshiftPshiftVisible = !tbosTshiftPshiftVisible;
+    saveTbosPshiftVisibility();
     updateTbosTshiftDisplayButton();
     if (chart && overlayCtx) requestAnimationFrame(drawMonthlyOverlay);
 }
@@ -18342,6 +18505,68 @@ function drawTbosTshift(visibleData) {
             ctx.fillText(label,labelX+tw/2,labelY); ctx.textAlign='start'; ctx.restore();
         });
     }
+    if (tbosTshiftPshiftVisible && Array.isArray(inOutPatternSignals?.pshiftSystem) && inOutPatternSignals.pshiftSystem.length) {
+        const latestHistoryTime = Array.isArray(s.history) && s.history.length ? String(s.history[s.history.length - 1].time) : null;
+        const pshiftEvents = tbosTshiftShowHistory ? inOutPatternSignals.pshiftSystem : inOutPatternSignals.pshiftSystem.slice(-1);
+        pshiftEvents.forEach(ev => {
+            if (!tbosTshiftShowHistory && latestHistoryTime && String(ev.purpleOutTime) < latestHistoryTime) return;
+            const x2 = ts.timeToCoordinate(ev.up2Time), x3 = ts.timeToCoordinate(ev.up3Time);
+            const y2 = candleSeries.priceToCoordinate(ev.up2Price), y3 = candleSeries.priceToCoordinate(ev.up3Price);
+            if (x2 == null || x3 == null || y2 == null || y3 == null || !Number.isFinite(y2) || !Number.isFinite(y3)) return;
+            // Keep the arrow between Up-2 and Up-3, but extend its height up to Up-3.
+            const arrowX = Math.max(10, Math.min(w - 10, (x2 + x3) / 2));
+            const legMidY = (y2 + y3) / 2;
+            const tipY = Math.max(18, Math.min(h - 18, Math.min(legMidY, y3)));
+            const tailY = Math.min(h - 8, tipY + 54);
+            const label = 'Pshift System';
+            ctx.save();
+            ctx.strokeStyle='#fbbf24'; ctx.fillStyle='#fbbf24'; ctx.shadowColor='#fbbf24'; ctx.shadowBlur=5; ctx.globalAlpha=.94; ctx.lineWidth=1.8;
+            ctx.beginPath(); ctx.moveTo(arrowX, tailY); ctx.lineTo(arrowX, tipY + 10); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(arrowX, tipY); ctx.lineTo(arrowX - 9, tipY + 13); ctx.lineTo(arrowX + 9, tipY + 13); ctx.closePath(); ctx.fill();
+            ctx.shadowBlur=0; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+            ctx.fillText(label, arrowX, Math.max(13, tipY - 12));
+            ctx.textAlign='start'; ctx.restore();
+        });
+    }
+    if (tbosTshiftFakeTshiftVisible && Array.isArray(inOutPatternSignals?.fakeTshift) && inOutPatternSignals.fakeTshift.length) {
+        const latestHistoryTime = Array.isArray(s.history) && s.history.length ? String(s.history[s.history.length - 1].time) : null;
+        const fakeEvents = tbosTshiftShowHistory ? inOutPatternSignals.fakeTshift : inOutPatternSignals.fakeTshift.slice(-1);
+        fakeEvents.forEach(ev => {
+            if (!tbosTshiftShowHistory && latestHistoryTime && String(ev.outTime) < latestHistoryTime) return;
+            const xOut = ts.timeToCoordinate(ev.outTime);
+            const x1 = ts.timeToCoordinate(ev.up1Time), x2 = ts.timeToCoordinate(ev.up2Time), x3 = ts.timeToCoordinate(ev.up3Time);
+            const blueEndX = ts.timeToCoordinate(ev.blueLineEndTime);
+            const y1 = candleSeries.priceToCoordinate(ev.up1Price), y2 = candleSeries.priceToCoordinate(ev.up2Price);
+            const blueStartY = candleSeries.priceToCoordinate(ev.up3Price), blueEndY = candleSeries.priceToCoordinate(ev.blueLineEndPrice);
+            if (xOut == null || x1 == null || x2 == null || x3 == null || blueEndX == null || y1 == null || y2 == null || blueStartY == null || blueEndY == null || !Number.isFinite(y1) || !Number.isFinite(y2) || !Number.isFinite(blueStartY) || !Number.isFinite(blueEndY)) return;
+            const sx1 = Math.max(0, x1), sx2 = Math.max(0, x2);
+            const blueDeclineRange = Number(ev.up3Price) - Number(ev.blueLineEndPrice);
+            if (!(blueDeclineRange > 0)) return;
+            const line1Fraction = Math.max(0, Math.min(1, (Number(ev.up3Price) - Number(ev.up1Price)) / blueDeclineRange));
+            const line2Fraction = Math.max(0, Math.min(1, (Number(ev.up3Price) - Number(ev.up2Price)) / blueDeclineRange));
+            const intersection1X = x3 + (blueEndX - x3) * line1Fraction;
+            const intersection2X = x3 + (blueEndX - x3) * line2Fraction;
+            const firstLineEnd = Math.max(sx1 + 12, Math.min(w - 8, intersection1X));
+            const secondLineEnd = Math.max(sx2 + 12, Math.min(w - 8, intersection2X + 22));
+            ctx.save(); ctx.strokeStyle='#fbbf24'; ctx.fillStyle='#fbbf24'; ctx.shadowColor='#fbbf24'; ctx.shadowBlur=5; ctx.globalAlpha=.9; ctx.lineWidth=1.6;
+            ctx.setLineDash([5,3]);
+            ctx.beginPath(); ctx.moveTo(sx1,y1); ctx.lineTo(firstLineEnd,y1); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(sx2,y2); ctx.lineTo(secondLineEnd,y2); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font='bold 10px sans-serif';
+            ctx.fillText('1st Line',Math.max(4,Math.min(w-54,sx1+(firstLineEnd-sx1)*.52)),Math.max(12,y1-8));
+            ctx.fillText('2nd Line',Math.max(4,Math.min(w-54,sx2+(secondLineEnd-sx2)*.52)),Math.min(h-10,y2+15));
+            const arrowX = Math.max(8, Math.min(w-8, intersection2X));
+            const label = 'Fake Tshift';
+            const tw = ctx.measureText(label).width;
+            const tipY = Math.max(16, Math.min(y2-18, blueStartY+18));
+            const labelY = Math.max(16, tipY-12);
+            ctx.beginPath(); ctx.moveTo(arrowX,y2-4); ctx.lineTo(arrowX,tipY+9); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(arrowX,tipY); ctx.lineTo(arrowX-8,tipY+11); ctx.lineTo(arrowX+8,tipY+11); ctx.closePath(); ctx.fill();
+            ctx.shadowBlur=0; ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+            ctx.fillText(label,Math.max(tw/2+4,Math.min(w-tw/2-4,arrowX)),labelY); ctx.textAlign='start'; ctx.restore();
+        });
+    }
     if (s.mode === 'uptrend') { drawLine(s.tbos,'TBOS',s.tbosSource,true); drawLine(s.tshift,'Tshift',s.tshiftSource,false); }
     else { drawLine(s.tshift,'Tshift',s.tshiftSource,true); drawLine(s.tbos,'TBOS',s.tbosSource,false); }
 }
@@ -18800,7 +19025,7 @@ function _ioCustomPatternCompatible(pattern) {
 //    • H-L-H where H3 ≤ H1  → H1 = Out-Pattern (strong resistance / ERL)
 // ═══════════════════════════════════════════════════════════════
 function computeInOutPattern(data) {
-    inOutPatternSignals   = { pivots: [] };
+    inOutPatternSignals   = { pivots: [], fakeTshift: [], pshiftSystem: [] };
     inOutConfirmedSignals = [];
     if (data.length <= 18) return;
 
@@ -19007,6 +19232,112 @@ function computeInOutPattern(data) {
         }
     }
     inOutPatternSignals.internalInoutChoch = internalInoutChoch;
+    // Pshift System: PurpleOut → Down-1 → Down-2 → Down-3 (Internal CHoCH Type 2)
+    // → Up-1 → Up-2 → Up-3, with the required Up-1 price strictly above Down-2.
+    const pshiftSystem = [];
+    if (Array.isArray(tbosTshiftState?.history) && tbosTshiftState.history.length) {
+        const pRaw = _ioComputeRawPivots(data);
+        const pLabels = _ioLabelRawPivots(pRaw);
+        for (let i = 0; i + 6 < pRaw.length; i++) {
+            const outLabel = pLabels[i];
+            const d1Label = pLabels[i + 1];
+            const d2Label = pLabels[i + 2];
+            const d3Label = pLabels[i + 3];
+            const u1Label = pLabels[i + 4];
+            const u2Label = pLabels[i + 5];
+            const u3Label = pLabels[i + 6];
+            const patternTime = data[pRaw[i]?.barIdx]?.time;
+            const activeOuter = tbosTshiftState.history.filter(h => String(h.time) <= String(patternTime)).slice(-1)[0];
+            if (!activeOuter || activeOuter.mode !== 'uptrend') continue;
+            const rangeLow = Number(activeOuter.tshift?.price), rangeHigh = Number(activeOuter.tbos?.price);
+            if (!(Number.isFinite(rangeLow) && Number.isFinite(rangeHigh) && rangeHigh > rangeLow)) continue;
+            if (!outLabel || !d1Label || !d2Label || !d3Label || !u1Label || !u2Label || !u3Label) continue;
+            if (!(outLabel.isOut && outLabel.outDir === 'purple')) continue;
+            if (!(d1Label.label === '1' && d1Label.dir === 'down')) continue;
+            if (!(d2Label.label === '2' && d2Label.dir === 'down')) continue;
+            if (!(d3Label.label === '3' && d3Label.dir === 'down')) continue;
+            if (!(u1Label.label === '1' && u1Label.dir === 'up' && !u1Label.isOut)) continue;
+            if (!(u2Label.label === '2' && u2Label.dir === 'up' && !u2Label.isOut)) continue;
+            if (!(u3Label.label === '3' && u3Label.dir === 'up' && !u3Label.isOut)) continue;
+            const out = pRaw[i], d1 = pRaw[i + 1], d2 = pRaw[i + 2], d3 = pRaw[i + 3];
+            const u1 = pRaw[i + 4], u2 = pRaw[i + 5], u3 = pRaw[i + 6];
+            const prices = [out.price, d1.price, d2.price, d3.price, u1.price, u2.price, u3.price].map(Number);
+            if (prices.some(price => !Number.isFinite(price) || price <= rangeLow || price >= rangeHigh)) continue;
+            // Exact Internal CHoCH Type 2: Down-2 is above the Down-1 level,
+            // Down-3 is below it, and the Down-2 -> Down-3 leg crosses that level.
+            const levelPrice = Number(d1.price), p2 = Number(d2.price), p3 = Number(d3.price);
+            if (!(p2 > levelPrice && p3 < levelPrice)) continue;
+            const denom = p2 - p3;
+            if (!(denom > 0)) continue;
+            const intersectionFraction = (p2 - levelPrice) / denom;
+            if (!(intersectionFraction >= 0 && intersectionFraction <= 1)) continue;
+            if (!(Number(u1.price) > p2)) continue;
+            if (!(Number(u2.price) < Number(u1.price) && Number(u3.price) > Number(u1.price))) continue;
+            pshiftSystem.push({
+                patternNumber: pshiftSystem.length + 1,
+                purpleOutTime:data[pRaw[i].barIdx]?.time, purpleOutIdx:pRaw[i].barIdx, purpleOutPrice:Number(out.price),
+                down1Time:data[pRaw[i + 1].barIdx]?.time, down1Idx:pRaw[i + 1].barIdx, down1Price:Number(d1.price),
+                down2Time:data[pRaw[i + 2].barIdx]?.time, down2Idx:pRaw[i + 2].barIdx, down2Price:Number(d2.price),
+                down3Time:data[pRaw[i + 3].barIdx]?.time, down3Idx:pRaw[i + 3].barIdx, down3Price:Number(d3.price),
+                up1Time:data[pRaw[i + 4].barIdx]?.time, up1Idx:pRaw[i + 4].barIdx, up1Price:Number(u1.price),
+                up2Time:data[pRaw[i + 5].barIdx]?.time, up2Idx:pRaw[i + 5].barIdx, up2Price:Number(u2.price),
+                up3Time:data[pRaw[i + 6].barIdx]?.time, up3Idx:pRaw[i + 6].barIdx, up3Price:Number(u3.price),
+                intersectionFraction
+            });
+        }
+    }
+    inOutPatternSignals.pshiftSystem = pshiftSystem;
+    // Fake Tshift: YellowOut → Up-1 → Up-2 → Up-3, then the first candle
+    // after Up-3 closes below the Up-2 horizontal level. All four pivots
+    // must remain inside the active TBOS-above-Tshift outer range.
+    const fakeTshift = [];
+    if (outerUptrend && Number.isFinite(outerLow) && Number.isFinite(outerHigh)) {
+        const fakeRaw = _ioComputeRawPivots(data);
+        const fakeLabels = _ioLabelRawPivots(fakeRaw);
+        for (let i = 0; i + 3 < fakeRaw.length; i++) {
+            const out = fakeRaw[i] && fakeLabels[i];
+            const up1 = fakeRaw[i + 1] && fakeLabels[i + 1];
+            const up2 = fakeRaw[i + 2] && fakeLabels[i + 2];
+            const up3 = fakeRaw[i + 3] && fakeLabels[i + 3];
+            if (!out || !up1 || !up2 || !up3) continue;
+            if (!(out.isOut && out.outDir === 'yellow')) continue;
+            if (!(up1.label === '1' && up1.dir === 'up' && up2.label === '2' && up2.dir === 'up' && up3.label === '3' && up3.dir === 'up')) continue;
+            const outPrice = Number(fakeRaw[i].price), up1Price = Number(fakeRaw[i + 1].price);
+            const up2Price = Number(fakeRaw[i + 2].price), up3Price = Number(fakeRaw[i + 3].price);
+            const prices = [outPrice, up1Price, up2Price, up3Price];
+            if (prices.some(price => !Number.isFinite(price) || price <= outerLow || price >= outerHigh)) continue;
+            const up3Idx = Number(fakeRaw[i + 3].barIdx);
+            let firstLineCrossIdx = -1, triggerIdx = -1, recoveredAboveFirstLine = false;
+            for (let k = up3Idx + 1; k < data.length; k++) {
+                const close = Number(data[k]?.close);
+                if (!Number.isFinite(close)) continue;
+                if (firstLineCrossIdx < 0 && close < up1Price) firstLineCrossIdx = k;
+                else if (firstLineCrossIdx >= 0 && close >= up1Price) { recoveredAboveFirstLine = true; break; }
+                if (firstLineCrossIdx >= 0 && close < up2Price) { triggerIdx = k; break; }
+            }
+            if (firstLineCrossIdx < 0 || triggerIdx < 0 || recoveredAboveFirstLine) continue;
+            // Any raw pivot between Up-3 and the final break means price formed
+            // a mini/re-entry structure instead of one direct downswing.
+            const intermediatePivot = fakeRaw.slice(i + 4).find(p => {
+                const pivotIdx = Number(p?.barIdx);
+                return Number.isFinite(pivotIdx) && pivotIdx > up3Idx && pivotIdx < triggerIdx;
+            });
+            if (intermediatePivot) continue;
+            const blueEndPivot = fakeRaw[i + 4];
+            if (!blueEndPivot || blueEndPivot.type !== 'L' || !Number.isFinite(Number(blueEndPivot.price)) || Number(blueEndPivot.price) >= up2Price) continue;
+            fakeTshift.push({
+                patternNumber: fakeTshift.length + 1,
+                outTime: data[fakeRaw[i].barIdx]?.time, outIdx: fakeRaw[i].barIdx, outPrice,
+                up1Time: data[fakeRaw[i + 1].barIdx]?.time, up1Idx: fakeRaw[i + 1].barIdx, up1Price,
+                up2Time: data[fakeRaw[i + 2].barIdx]?.time, up2Idx: fakeRaw[i + 2].barIdx, up2Price,
+                up3Time: data[fakeRaw[i + 3].barIdx]?.time, up3Idx, up3Price,
+                blueLineEndTime: data[blueEndPivot.barIdx]?.time, blueLineEndIdx: blueEndPivot.barIdx, blueLineEndPrice: Number(blueEndPivot.price),
+                firstLineCrossTime: data[firstLineCrossIdx]?.time, firstLineCrossIdx,
+                triggerTime: data[triggerIdx]?.time, triggerIdx, triggerClose: Number(data[triggerIdx]?.close)
+            });
+        }
+    }
+    inOutPatternSignals.fakeTshift = fakeTshift;
     // Group by family — triggerHistory has the correctly-resolved per-occurrence
     // sequence-start barIdx (seqPivot.barIdx), NOT the shared _ioLastUpcrossAfter result.
     const _seenFams = new Set();
@@ -21258,9 +21589,9 @@ function switchInstrumentData() {
 //    • After market close   (Sun–Thu 15:00+)          → until next 10:30 NPT
 //    • Pre-market / weekend (Fri–Sat or before 11:00) → 20 hours
 // ═══════════════════════════════════════════════════════════════
-const CACHE_KEY_FAST = 'nepse_chart_cache_fast_github_features_v1';
-const CACHE_KEY_FULL = 'nepse_chart_cache_full_github_features_v1';
-const IDB_NAME       = 'nepse_chart_idb_github_features_v1';
+const CACHE_KEY_FAST = 'nepse_chart_cache_fast';
+const CACHE_KEY_FULL = 'nepse_chart_cache_full';
+const IDB_NAME       = 'nepse_chart_idb';
 const IDB_STORE      = 'cache';
 const IDB_VERSION    = 1;
 const AUTO_REFRESH_MARKER_KEY = 'nepse_auto_refresh_npt_day_v1';
@@ -21372,7 +21703,7 @@ async function getCachedData(key) {
 }
 
 // A local HTML file must never remain on the loading screen indefinitely when
-// IndexedDB or the repository data files is blocked, slow, or offline.
+// IndexedDB or the Apps Script endpoint is blocked, slow, or offline.
 function withTimeout(promise, timeoutMs, message) {
     let timer;
     const timeout = new Promise((_, reject) => {
@@ -21518,21 +21849,6 @@ function mergeInstruments(freshInstruments) {
     }
 }
 
-
-async function fetchChunkedRows() {
-    const manifestResponse = await fetchWithTimeout(CHUNK_MANIFEST_URL + '?v=' + Date.now(), { method: 'GET', redirect: 'follow', cache: 'no-store' }, 10000);
-    if (!manifestResponse.ok) throw new Error('Chunk manifest request failed: ' + manifestResponse.status);
-    const manifest = await manifestResponse.json();
-    if (!manifest || !Array.isArray(manifest.files) || !manifest.files.length) throw new Error('No history chunks found in repository');
-    const parts = await Promise.all(manifest.files.map(async (file) => {
-        const response = await fetchWithTimeout(REPO_ORIGIN + '/data/chunks/' + encodeURIComponent(file) + '?v=' + Date.now(), { method: 'GET', redirect: 'follow', cache: 'no-store' }, 20000);
-        if (!response.ok) throw new Error('History chunk request failed: ' + file + ' (' + response.status + ')');
-        const rows = await response.json();
-        return Array.isArray(rows) ? rows : [];
-    }));
-    return parts.flat().sort((a, b) => String(a.Date || '').localeCompare(String(b.Date || '')));
-}
-
 async function loadData(options) {
     const opts = options || {};
     const forceNetwork = !!opts.forceNetwork;
@@ -21553,7 +21869,7 @@ async function loadData(options) {
             if (!allData.length && !fullDataLoaded) {
                 errorEl.classList.remove('hidden');
                 document.getElementById('error-message').textContent = 'NEPSE data request timed out.';
-                document.getElementById('error-hint').textContent = 'Check your internet connection and ensure the repository data files is accessible, then refresh.';
+                document.getElementById('error-hint').textContent = 'Check your internet connection and ensure the Apps Script endpoint is accessible, then refresh.';
             } else if (updateEl) {
                 updateEl.textContent = 'NEPSE data loaded partially — refresh to retry the remaining data.';
             }
@@ -21622,11 +21938,12 @@ async function loadData(options) {
     }
 
     // ── Step 3: fire BOTH network requests in parallel right now ──
-    const fastPromise = fetchWithTimeout(GITHUB_FAST_URL, { method: 'GET', redirect: 'follow' }, 30000)
+    const fastPromise = fetchWithTimeout(SHEET_URL + '?type=fast', { method: 'GET', redirect: 'follow' }, 30000)
         .then(r => r.ok ? r.json() : null)
         .catch(() => null);
 
-    const fullPromise = fetchChunkedRows();
+    const fullPromise = fetchWithTimeout(SHEET_URL, { method: 'GET', redirect: 'follow' }, 60000)
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
 
     // ── Step 4: as soon as fast resolves, render if not already up ──
     fastPromise.then(fastData => {
@@ -21967,7 +22284,7 @@ function initChart() {
         layout: { background:{color:'#0f0f23'}, textColor:'#d1d4dc' },
         grid: { vertLines:{color:'#1a1a2e'}, horzLines:{color:'#1a1a2e'} },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        rightPriceScale: { borderColor:'#2a2a3e' },
+        rightPriceScale: { borderColor:'#2a2a3e', visible:true, ticksVisible:true, minimumWidth:0 },
         timeScale: { borderColor:'#2a2a3e', textColor:'#cbd5e1', timeVisible:false, secondsVisible:false },
         // Keep normal pan and scale explicitly enabled. Later zoom-mode changes
         // use the same policy rather than relying on library defaults.
@@ -23134,6 +23451,7 @@ function applyToggleStyles() {
     }
     updatePoiDisplayButton();
     updateFvgToggleButton();
+    updateLiquidityMasterButton();
     document.querySelectorAll('.toggle-btn').forEach(btn=>{
         const key=btn.dataset.vis;
         if (!key || !(key in vis)) return;
@@ -23207,6 +23525,40 @@ function toggleLiquidityFavourite(key, event) {
 function toggleLiquidityVisibility(key, btn) {
     if (!(key in vis)) return;
     vis[key] = !vis[key];
+    saveChartTogglePrefs();
+    applyToggleStyles();
+    try {
+        const sr = chart.timeScale().getVisibleRange();
+        updateChart(false);
+        if (sr) chart.timeScale().setVisibleRange(sr);
+    } catch (e) {}
+}
+// ── LIQUIDITY MASTER SWITCH — one on/off button for every liquidity indicator ──
+function liquidityAllKeys() { return ['bslLevel','bslBuyLevel','sslLevel','sellSignal','buySignal']; }
+function liquidityAllOnCount() { return liquidityAllKeys().filter(function(key){ return !!vis[key]; }).length; }
+function updateLiquidityMasterButton() {
+    const btn = document.getElementById('tog-liq-all');
+    if (!btn) return;
+    const keys = liquidityAllKeys();
+    const on = liquidityAllOnCount();
+    const total = keys.length;
+    const state = on === 0 ? 'off' : (on === total ? 'all' : 'some');
+    btn.classList.toggle('off', state === 'off');
+    btn.classList.toggle('partial', state === 'some');
+    btn.classList.toggle('active-all', state === 'all');
+    btn.setAttribute('aria-pressed', String(state !== 'off'));
+    btn.textContent = state === 'all' ? '◉ LIQ All' : (state === 'some' ? '◉ LIQ ' + on + '/' + total : '◌ LIQ Off');
+    btn.title = state === 'all'
+        ? 'Liquidity indicators: all on — click to hide BSL, SSL, BSL★, BUY and SELL at once'
+        : (state === 'some'
+            ? 'Liquidity indicators: ' + on + ' of ' + total + ' on — click to turn them all on'
+            : 'Liquidity indicators: all off — click to show BSL, SSL, BSL★, BUY and SELL at once');
+}
+function toggleLiquidityAll(event) {
+    if (event) event.stopPropagation();
+    const keys = liquidityAllKeys();
+    const turnOn = liquidityAllOnCount() < keys.length;
+    keys.forEach(function(key){ if (key in vis) vis[key] = turnOn; });
     saveChartTogglePrefs();
     applyToggleStyles();
     try {
@@ -25379,7 +25731,7 @@ function applyTheme(theme) {
             chart.applyOptions({
                 layout:         { background: { color: '#ffffff' }, textColor: '#334155' },
                 grid:           { vertLines: { color: '#e8edf4' }, horzLines: { color: '#e8edf4' } },
-                rightPriceScale:{ borderColor: '#c9d2de' },
+                rightPriceScale:{ borderColor: '#c9d2de', visible:true, ticksVisible:true, minimumWidth:0 },
                 timeScale:      { borderColor: '#c9d2de', textColor: '#334155', timeVisible: false, secondsVisible: false }
             });
         }
@@ -25390,7 +25742,7 @@ function applyTheme(theme) {
             chart.applyOptions({
                 layout:         { background: { color: '#0f0f23' }, textColor: '#d1d4dc' },
                 grid:           { vertLines: { color: '#1a1a2e' }, horzLines: { color: '#1a1a2e' } },
-                rightPriceScale:{ borderColor: '#2a2a3e' },
+                rightPriceScale:{ borderColor: '#2a2a3e', visible:true, ticksVisible:true, minimumWidth:0 },
                 timeScale:      { borderColor: '#2a2a3e', textColor: '#cbd5e1', timeVisible: false, secondsVisible: false }
             });
         }
@@ -25571,6 +25923,8 @@ function scrOpenInstrument(name) {
 // ═══════════════════════════════════════════════════════════════
 let _iopResults   = [];
 let _iopFormingResults = [];
+let _iopCustomHistoryMode = false;
+let _iopCustomHistoryRows = [];
 let _iopFormingEnabled = false;
 let _iopFormingOutFilter = 'none';
 let _iopFormingPriorFilter = 'none';
@@ -25736,7 +26090,89 @@ function inoutToggleCustom() {
     toggle.classList.toggle('active', open);
 }
 
+const _IO_CUSTOM_HISTORY_LABELS = {
+    ridi:'RIDI Pattern', purple_down_entry:'PurpleOut → Down 1-2-3 + EMA', pshift_pattern:'Pshift Pattern',
+    dbl_support:'Double Support', purp_breakout:'Purple Breakout', staircase_up:'Staircase Up', post_down:'Post-Down Recovery',
+    compress:'Compression Breakout', support_rev:'Support Reversal', rev_ridi:'Rev.RIDI', up_inpat:'Up In-Pattern',
+    v_recovery:'V-Shape Recovery', triple_support:'Triple Support', hh_breakout:'HH Breakout', up_cons_break:'Up Cons. Break',
+    uptrend_pull:'Uptrend Pullback', zigzag_accum:'Zig-Zag Accumulation', dbl_purp_break:'Double Resistance Break',
+    deep_cap:'Deep Cap Recovery', out_int_choch:'OutPat Internal CHOCH', ypy_signal:'Y-P-Y Setup'
+};
+function _ioCustomHistorySymbols() {
+    const ta=document.getElementById('inout-custom-ta'), raw=ta ? ta.value : '';
+    return [...new Set(raw.split(/[\\s,;]+/).map(s=>String(s||'').trim().toUpperCase()).filter(Boolean))];
+}
+function clearInOutCustomHistory() {
+    const ta=document.getElementById('inout-custom-ta'); if (ta) ta.value='';
+    _iopCustomHistoryMode=false; _iopCustomHistoryRows=[];
+    const status=document.getElementById('inout-custom-status'); if (status) status.textContent='';
+    if (_iopResults.length) renderInOutScreener();
+    else { const body=document.getElementById('inout-screener-body'); if (body) body.innerHTML='<div style="padding:24px;color:#5a3a7a;font-size:12px;text-align:center;">Click ▶ Scan to find In/Out Pattern setups across all instruments.</div>'; }
+}
+function runInOutCustomAllHistory() {
+    const body=document.getElementById('inout-screener-body'), status=document.getElementById('inout-custom-status'), btn=document.getElementById('inout-custom-history-btn');
+    if (!body || _iopFormingEnabled) return;
+    const symbols=_ioCustomHistorySymbols();
+    if (!symbols.length) { if(status){status.textContent='Please enter at least one symbol.';status.style.color='#f87171';} return; }
+    const available=Object.keys(allInstruments||{});
+    if (!available.length) { if(status){status.textContent='Stock data is still loading. Please try again.';status.style.color='#f87171';} return; }
+    _iopCustomHistoryMode=true; _iopCustomHistoryRows=[];
+    if(btn){btn.disabled=true;btn.textContent='\u23F3 History…';}
+    if(status){status.textContent='Scanning all confirmed pattern histories for '+symbols.length+' symbol'+(symbols.length===1?'':'s')+'…';status.style.color='#7a5a9a';}
+    body.innerHTML='<div style="padding:24px;color:#a78bfa;font-size:12px;text-align:center;">Loading all confirmed In/Out pattern histories…</div>';
+    setTimeout(()=>{
+        const rows=[];
+        for (const symbol of symbols) {
+            const name=available.find(k=>String(k).trim().toUpperCase()===symbol);
+            if (!name) { rows.push({name:symbol,missing:true,groups:[]}); continue; }
+            const bars=allInstruments[name];
+            if (!Array.isArray(bars)||bars.length<30) { rows.push({name,insufficient:true,groups:[]}); continue; }
+            try {
+                const patterns=_ioDetect(bars), groups=new Map();
+                for (const p of patterns) {
+                    const history=Array.isArray(p.triggerHistory)?p.triggerHistory:[];
+                    if (!history.length) continue;
+                    const family=p.patFamily||p.patternType;
+                    if (!groups.has(family)) groups.set(family,{family,label:_IO_CUSTOM_HISTORY_LABELS[family]||p.description||family,description:p.description||'',dates:[],seen:new Set()});
+                    const group=groups.get(family);
+                    for (const h of history) {
+                        const key=String(h.triggerBarIdx==null?h.date:h.triggerBarIdx)+'|'+String(h.patternType||'');
+                        if (group.seen.has(key)) continue;
+                        group.seen.add(key); group.dates.push({date:h.date||'',barsAgo:Number(h.barsAgo),patternType:h.patternType||p.patternType});
+                    }
+                }
+                const last=bars[bars.length-1], prev=bars.length>1?bars[bars.length-2]:last, close=Number(last&&last.close), prevClose=Number(prev&&prev.close);
+                const chg=Number.isFinite(close)&&Number.isFinite(prevClose)&&prevClose!==0?((close-prevClose)/prevClose)*100:0;
+                const cleanGroups=[...groups.values()].map(g=>{g.dates.sort((a,b)=>Number(b.barsAgo)-Number(a.barsAgo));g.count=g.dates.length;delete g.seen;return g;}).filter(g=>g.count>0).sort((a,b)=>b.count-a.count||a.label.localeCompare(b.label));
+                rows.push({name,close:Number.isFinite(close)?close:0,chg,groups:cleanGroups});
+            } catch (err) { console.warn('In/Out custom all-history skipped '+name,err); rows.push({name,error:true,groups:[]}); }
+        }
+        _iopCustomHistoryRows=rows; _iopResults=[];
+        if(btn){btn.disabled=false;btn.textContent='Show All Pattern History';}
+        if(status){const found=rows.filter(r=>r.groups&&r.groups.length).length;status.textContent='All-pattern history loaded for '+found+' of '+rows.length+' symbol'+(rows.length===1?'':'s')+'.';status.style.color=found?'#4ade80':'#f87171';}
+        renderInOutCustomAllHistory();
+    },30);
+}
+function renderInOutCustomAllHistory() {
+    const body=document.getElementById('inout-screener-body'); if(!body)return;
+    const rows=_iopCustomHistoryRows;
+    let totalGroups=0,totalOccurrences=0;
+    let html='<div style="padding:7px 18px 6px;font-size:11px;color:#7a5a9a;border-bottom:1px solid #1a1a3a;">Custom history for <strong style="color:#e879f9;">'+rows.length+'</strong> symbol'+(rows.length===1?'':'s')+' · every confirmed In/Out pattern family and its repeated history is shown below.</div>';
+    html+='<div style="padding:7px 18px;border-bottom:1px solid #1a1a3a;color:#7a5a9a;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;">Symbol <span style="margin-left:30px;">Repeated In/Out pattern history</span></div>';
+    rows.forEach(row=>{
+        const safeName=String(row.name||'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        const groups=(row.groups||[]).map(g=>{totalGroups++;totalOccurrences+=g.count;const dates=g.dates.map(d=>d.date+' ('+(Number(d.barsAgo)===0?'Today':Number(d.barsAgo)+'d ago')+')').join(' · ');return '<div style="margin:3px 0;"><span style="display:inline-block;min-width:245px;color:#c4b5fd;font-weight:700;">'+String(g.label).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))+' <span style="color:#fbbf24;">('+g.count+'x)</span></span><span style="color:#a8a8c8;">'+dates+'</span></div>';}).join('');
+        const msg=row.missing?'Symbol not found in loaded data.':row.insufficient?'Insufficient OHLC history for scanning.':row.error?'Scan error for this symbol.':'';
+        const close=row.close!=null?'<span style="float:right;color:#9090b8;">Close '+Number(row.close).toFixed(2)+' · '+(row.chg>=0?'+':'')+Number(row.chg||0).toFixed(2)+'%</span>':'';
+        let openName=String(row.name||'').replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
+        html+='<div style="padding:8px 18px;border-bottom:1px solid rgba(42,42,78,.65);font-size:10px;line-height:1.4;cursor:pointer;" onclick="inoutOpenInst(\\''+openName+'\\')" onmouseenter="this.style.background=\\'rgba(232,121,249,.05)\\'" onmouseleave="this.style.background=\\'\\'">'+close+'<div style="font-size:12px;color:#f0d0ff;font-weight:700;margin-bottom:4px;">'+safeName+(msg?' <span style="color:#facc15;font-size:10px;font-weight:500;">· '+msg+'</span>':'')+'</div>'+(groups||'<div style="color:#5a5a8a;">No confirmed In/Out pattern history.</div>')+'</div>';
+    });
+    if(!rows.length) html+='<div style="padding:24px;color:#5a3a7a;text-align:center;font-size:12px;">No custom symbols were processed.</div>';
+    html+='<div style="padding:7px 18px;color:#5a3a7a;font-size:10px;border-top:1px solid #1a1a3a;">'+totalGroups+' pattern families · '+totalOccurrences+' confirmed occurrences across the entered symbols.</div>';
+    body.innerHTML=html;
+}
 function runCustomScan() {
+    _iopCustomHistoryMode=false; _iopCustomHistoryRows=[];
     const ta     = document.getElementById('inout-custom-ta');
     const status = document.getElementById('inout-custom-status');
     const btn    = document.getElementById('inout-custom-scan-btn');
@@ -26700,6 +27136,7 @@ function cpatShowTip(evt, el) {
 function cpatHideTip() { if (_ioTipEl) _ioTipEl.style.display = 'none'; }
 
 function inoutSetPat(btn) {
+    _iopCustomHistoryMode=false; _iopCustomHistoryRows=[];
     // Selecting any built-in pattern exits the custom/Forming mode so its own data loads immediately.
     iopResetFormingPattern({ scan:false });
     document.querySelectorAll('.iop-btn').forEach(b => b.classList.remove('active'));
@@ -26724,6 +27161,7 @@ function inoutSetCat(btn) {
     btn.classList.add('active');
     _iopCatFilter = btn.dataset.cat;
     if (_iopFormingEnabled) renderFormingScreener();
+    else if (_iopCustomHistoryMode) renderInOutCustomAllHistory();
     else if (_iopResults.length) renderInOutScreener();
 }
 function inoutSortFn(hd) {
@@ -27865,6 +28303,7 @@ function _ioStrength(p) {
 }
 
 function runInOutScreener() {
+    _iopCustomHistoryMode=false; _iopCustomHistoryRows=[];
     const btn  = document.getElementById('inout-run-btn');
     const body = document.getElementById('inout-screener-body');
     btn.disabled = true;
@@ -27953,6 +28392,7 @@ function runInOutScreener() {
 }
 
 function renderInOutScreener() {
+    if (_iopCustomHistoryMode) { renderInOutCustomAllHistory(); return; }
     const filtered = _iopResults.filter(r => {
         if (_iopPatFilter === 'awaiting_all') {
             const pt = r.patternType;
@@ -28649,17 +29089,21 @@ let _stockCharacterScanActive = false;
 let _stockCharacterRescanPattern = null;
 let _stockCharacterCache = new Map();
 let _stockCharacterWarmActive = false;
+let _stockCharacterCustomMode = false;
+let _stockCharacterCustomSymbols = [];
 function _stockCharacterCacheKey(name,bars) {
     const last=bars && bars[bars.length-1];
     return String(name)+'|'+String(bars && bars.length)+'|'+String(last && last.time)+'|'+String(last && last.close);
 }
 function _stockCharacterComputeChochPatterns(data,analysis,totalBars,onlyState) {
-    const internal=[], outpat=[], seenInternal=new Set(), seenOutpat=new Set();
+    const internalType1=[], internalType2=[], outpat=[], fakeTshift=[], pshift=[], seenInternal=new Set(), seenOutpat=new Set();
     const state=onlyState || analysis;
-    if (!state || !state.tbos || !state.tshift) return {internal_choch:internal,outpat_choch:outpat};
+    if (!state || !state.tbos || !state.tshift) return {internal_choch_type1:internalType1,internal_choch_type2:internalType2,outpat_choch:outpat,fake_tshift:fakeTshift,pshift_system:pshift};
     const outerUptrend=state.mode==='uptrend' && Number(state.tbos?.price)>Number(state.tshift?.price);
     const outerLow=outerUptrend?Number(state.tshift.price):NaN, outerHigh=outerUptrend?Number(state.tbos.price):NaN;
-    if (!(outerUptrend && Number.isFinite(outerLow) && Number.isFinite(outerHigh))) return {internal_choch:internal,outpat_choch:outpat};
+    // Existing character families use the current outer range. Pshift System is
+    // historical, so it uses the TBOS/Tshift history active at each PurpleOut.
+
     const ema9=computeEMA(data,9), ema18=computeEMA(data,18), crossEvents=[];
     for (let i=1;i<data.length;i++) {
         const crossedDown=Number(ema9[i-1].value)>=Number(ema18[i-1].value)&&Number(ema9[i].value)<Number(ema18[i].value);
@@ -28697,11 +29141,60 @@ function _stockCharacterComputeChochPatterns(data,analysis,totalBars,onlyState) 
         const key=String(ioRaw[i].barIdx)+'|'+String(ioRaw[i+3].barIdx)+'|'+String(levelPrice);
         if (seenInternal.has(key)) continue;
         seenInternal.add(key);
-        internal.push(_stockCharacterInternalOccurrence({predecessorType:isBlueUp3?'blueUp3':'purpleOut',predecessorTime:data[ioRaw[i].barIdx]?.time,predecessorIdx:ioRaw[i].barIdx,levelTime:data[ioRaw[i+1].barIdx]?.time,levelIdx:ioRaw[i+1].barIdx,levelPrice,down1Time:data[ioRaw[i+1].barIdx]?.time,down2Time:data[ioRaw[i+2].barIdx]?.time,down2Idx:ioRaw[i+2].barIdx,down3Time:data[ioRaw[i+3].barIdx]?.time,down3Idx:ioRaw[i+3].barIdx,intersectionFraction:fraction},internal.length,totalBars,isBlueUp3?'Internal CHoCH Type 1':'Internal CHoCH Type 2'));
+        const targetInternal=isBlueUp3?internalType1:internalType2;
+        targetInternal.push(_stockCharacterInternalOccurrence({predecessorType:isBlueUp3?'blueUp3':'purpleOut',predecessorTime:data[ioRaw[i].barIdx]?.time,predecessorIdx:ioRaw[i].barIdx,levelTime:data[ioRaw[i+1].barIdx]?.time,levelIdx:ioRaw[i+1].barIdx,levelPrice,down1Time:data[ioRaw[i+1].barIdx]?.time,down2Time:data[ioRaw[i+2].barIdx]?.time,down2Idx:ioRaw[i+2].barIdx,down3Time:data[ioRaw[i+3].barIdx]?.time,down3Idx:ioRaw[i+3].barIdx,intersectionFraction:fraction},targetInternal.length,totalBars,isBlueUp3?'Internal CHoCH Type 1':'Internal CHoCH Type 2'));
     }
-    internal.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
+    // Fake Tshift: YellowOut → Up-1 → Up-2 → Up-3, then one direct
+    // blue-line downswing crosses both levels without an intermediate pivot.
+    const fakeRaw=_ioComputeRawPivots(data), fakeLabels=_ioLabelRawPivots(fakeRaw);
+    for (let i=0;i+4<fakeRaw.length;i++) {
+        const out=fakeRaw[i]&&fakeLabels[i], up1=fakeRaw[i+1]&&fakeLabels[i+1], up2=fakeRaw[i+2]&&fakeLabels[i+2], up3=fakeRaw[i+3]&&fakeLabels[i+3], blueEnd=fakeRaw[i+4];
+        if (!out||!up1||!up2||!up3||!blueEnd) continue;
+        if (!(out.isOut&&out.outDir==='yellow'&&up1.label==='1'&&up1.dir==='up'&&up2.label==='2'&&up2.dir==='up'&&up3.label==='3'&&up3.dir==='up')) continue;
+        const outPrice=Number(fakeRaw[i].price), up1Price=Number(fakeRaw[i+1].price), up2Price=Number(fakeRaw[i+2].price), up3Price=Number(fakeRaw[i+3].price), blueEndPrice=Number(blueEnd.price);
+        if ([outPrice,up1Price,up2Price,up3Price,blueEndPrice].some(price=>!Number.isFinite(price)||price<=outerLow||price>=outerHigh)||blueEnd.type!=='L'||blueEndPrice>=up2Price) continue;
+        const up3Idx=Number(fakeRaw[i+3].barIdx), blueEndIdx=Number(blueEnd.barIdx), blueEndTime=data[blueEndIdx]?.time;
+        if (!Number.isFinite(up3Idx)||!Number.isFinite(blueEndIdx)||!blueEndTime) continue;
+        let firstLineCrossIdx=-1, triggerIdx=-1, recoveredAboveFirstLine=false;
+        for (let k=up3Idx+1;k<data.length;k++) {
+            const close=Number(data[k]?.close); if (!Number.isFinite(close)) continue;
+            if (firstLineCrossIdx<0&&close<up1Price) firstLineCrossIdx=k;
+            else if (firstLineCrossIdx>=0&&close>=up1Price) { recoveredAboveFirstLine=true; break; }
+            if (firstLineCrossIdx>=0&&close<up2Price) { triggerIdx=k; break; }
+        }
+        if (firstLineCrossIdx<0||triggerIdx<0||recoveredAboveFirstLine||blueEndIdx<=up3Idx) continue;
+        const intermediatePivot=fakeRaw.slice(i+4).find(p=>{const pivotIdx=Number(p?.barIdx);return Number.isFinite(pivotIdx)&&pivotIdx>up3Idx&&pivotIdx<triggerIdx;});
+        if (intermediatePivot) continue;
+        fakeTshift.push(_stockCharacterInternalOccurrence({predecessorType:'yellowOut',predecessorTime:data[fakeRaw[i].barIdx]?.time,predecessorIdx:fakeRaw[i].barIdx,levelTime:data[fakeRaw[i+2].barIdx]?.time,levelIdx:fakeRaw[i+2].barIdx,levelPrice:up2Price,up1Time:data[fakeRaw[i+1].barIdx]?.time,up1Idx:fakeRaw[i+1].barIdx,up1Price,up2Time:data[fakeRaw[i+2].barIdx]?.time,up2Idx:fakeRaw[i+2].barIdx,up2Price,up3Time:data[fakeRaw[i+3].barIdx]?.time,up3Idx,up3Price,blueLineEndTime:blueEndTime,blueLineEndIdx:blueEndIdx,blueLineEndPrice:blueEndPrice,firstLineCrossTime:data[firstLineCrossIdx]?.time,firstLineCrossIdx,triggerTime:data[triggerIdx]?.time,triggerIdx,triggerPrice:Number(data[triggerIdx]?.close),triggerClose:Number(data[triggerIdx]?.close),breakIdx:triggerIdx,supportIdx:fakeRaw[i+2].barIdx},fakeTshift.length,totalBars,'Fake Tshift'));
+    }
+    // Pshift System: PurpleOut -> Down 1-2-3 (exact Type 2 crossing) -> Up 1-2-3.
+    // Unlike the current-state-only families above, use the historical outer
+    // range active at the PurpleOut time so completed past patterns are found.
+    const pshiftHistory=Array.isArray(analysis && analysis.history)?analysis.history:(Array.isArray(state.history)?state.history:[]);
+    const pshiftRaw=_ioComputeRawPivots(data), pshiftLabels=_ioLabelRawPivots(pshiftRaw);
+    for (let i=0;i+6<pshiftRaw.length;i++) {
+        const outLabel=pshiftLabels[i], d1Label=pshiftLabels[i+1], d2Label=pshiftLabels[i+2], d3Label=pshiftLabels[i+3];
+        const u1Label=pshiftLabels[i+4], u2Label=pshiftLabels[i+5], u3Label=pshiftLabels[i+6];
+        if (!outLabel||!d1Label||!d2Label||!d3Label||!u1Label||!u2Label||!u3Label) continue;
+        if (!(outLabel.isOut&&outLabel.outDir==='purple'&&d1Label.label==='1'&&d1Label.dir==='down'&&d2Label.label==='2'&&d2Label.dir==='down'&&d3Label.label==='3'&&d3Label.dir==='down'&&u1Label.label==='1'&&u1Label.dir==='up'&&!u1Label.isOut&&u2Label.label==='2'&&u2Label.dir==='up'&&!u2Label.isOut&&u3Label.label==='3'&&u3Label.dir==='up'&&!u3Label.isOut)) continue;
+        const out=pshiftRaw[i], d1=pshiftRaw[i+1], d2=pshiftRaw[i+2], d3=pshiftRaw[i+3], u1=pshiftRaw[i+4], u2=pshiftRaw[i+5], u3=pshiftRaw[i+6];
+        const patternTime=data[out.barIdx]?.time, activeOuter=pshiftHistory.filter(h=>String(h.time)<=String(patternTime)).slice(-1)[0];
+        if (!(activeOuter?.mode==='uptrend')) continue;
+        const rangeLow=Number(activeOuter.tshift?.price), rangeHigh=Number(activeOuter.tbos?.price);
+        const prices=[out.price,d1.price,d2.price,d3.price,u1.price,u2.price,u3.price].map(Number);
+        if (!(Number.isFinite(rangeLow)&&Number.isFinite(rangeHigh)&&rangeHigh>rangeLow&&prices.every(price=>Number.isFinite(price)&&price>rangeLow&&price<rangeHigh))) continue;
+        const levelPrice=Number(d1.price), p2=Number(d2.price), p3=Number(d3.price), denom=p2-p3;
+        if (!(p2>levelPrice&&p3<levelPrice&&denom>0)) continue;
+        const intersectionFraction=(p2-levelPrice)/denom;
+        if (!(intersectionFraction>=0&&intersectionFraction<=1&&Number(u1.price)>p2&&Number(u2.price)<Number(u1.price)&&Number(u3.price)>Number(u1.price))) continue;
+        pshift.push(_stockCharacterInternalOccurrence({predecessorType:'purpleOut',predecessorTime:patternTime,predecessorIdx:out.barIdx,levelTime:data[d1.barIdx]?.time,levelIdx:d1.barIdx,levelPrice,down1Time:data[d1.barIdx]?.time,down1Idx:d1.barIdx,down2Time:data[d2.barIdx]?.time,down2Idx:d2.barIdx,down2Price:Number(d2.price),down3Time:data[d3.barIdx]?.time,down3Idx:d3.barIdx,down3Price:Number(d3.price),intersectionFraction,triggerTime:data[u3.barIdx]?.time,breakIdx:u3.barIdx,supportIdx:out.barIdx,up1Time:data[u1.barIdx]?.time,up1Idx:u1.barIdx,up1Price:Number(u1.price),up2Time:data[u2.barIdx]?.time,up2Idx:u2.barIdx,up2Price:Number(u2.price),up3Time:data[u3.barIdx]?.time,up3Idx:u3.barIdx,up3Price:Number(u3.price)},pshift.length,totalBars,'Pshift System'));
+    }
+    pshift.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
+    fakeTshift.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
+    internalType1.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
+    internalType2.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
     outpat.sort((a,b)=>Number(a.breakIdx)-Number(b.breakIdx)).forEach((p,idx)=>p.occurrence=idx+1);
-    return {internal_choch:internal,outpat_choch:outpat};
+    return {internal_choch_type1:internalType1,internal_choch_type2:internalType2,outpat_choch:outpat,fake_tshift:fakeTshift,pshift_system:pshift};
 }
 function _stockCharacterWarmChochCache() {
     if (_stockCharacterWarmActive) return;
@@ -28717,8 +29210,11 @@ function _stockCharacterWarmChochCache() {
         const item=pending[cursor++];
         try {
             const choch=_stockCharacterComputeChochPatterns(item.data,item.analysis,item.totalBars,item.analysis);
-            item.patterns.internal_choch=choch.internal_choch;
+            item.patterns.internal_choch_type1=choch.internal_choch_type1;
+            item.patterns.internal_choch_type2=choch.internal_choch_type2;
             item.patterns.outpat_choch=choch.outpat_choch;
+            item.patterns.fake_tshift=choch.fake_tshift;
+            item.patterns.pshift_system=choch.pshift_system;
             item.chochReady=true;
         } catch (err) { console.warn('Stock Character warm cache skipped '+item.name,err); }
         completed++;
@@ -28748,7 +29244,7 @@ function _stockCharacterUpdateFromCache() {
     renderStockCharacterScreener();
 }
 function _stockCharacterPatternName(pattern) {
-    return pattern === 'internal_choch' ? 'Internal CHoCH' : pattern === 'outpat_choch' ? 'OutPat CHoCH' : 'PBOS';
+    return pattern === 'internal_choch_type1' ? 'Internal CHoCH Type 1' : pattern === 'internal_choch_type2' ? 'Internal CHoCH Type 2' : pattern === 'outpat_choch' ? 'OutPat CHoCH' : pattern === 'fake_tshift' ? 'Fake Tshift' : pattern === 'pshift_system' ? 'Pshift System' : 'PBOS';
 }
 function stockCharacterSetPattern(btn) {
     if (!btn) return;
@@ -28760,6 +29256,8 @@ function stockCharacterSetPattern(btn) {
         b.style.color = active ? '#fde68a' : '#d6b35a';
     });
     _stockCharacterPattern = btn.dataset.pattern || 'pbos';
+    _stockCharacterCustomMode = false;
+    _stockCharacterCustomSymbols = [];
     _stockCharacterUpdateCounts();
     if (_stockCharacterScanActive) {
         _stockCharacterRescanPattern=_stockCharacterPattern;
@@ -28808,7 +29306,7 @@ function _stockCharacterOutpatOccurrence(p, idx, total, rawPivots, data) {
     return {...p, occurrence:idx + 1, patternName:'OutPat CHoCH', barsAgo:Number.isFinite(triggerIdx) ? Math.max(0,total - 1 - triggerIdx) : null, breakIdx:triggerIdx, startIdx, breakTime:data[triggerIdx] && data[triggerIdx].time, startTime:outPivot && outPivot.time || data[startIdx] && data[startIdx].time, levelPrice};
 }
 function _stockCharacterEscape(value) {
-    return String(value == null ? '' : value).replace(/[&<>\\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\\"':'&quot;',"'":'&#39;'}[ch]));
+    return String(value == null ? '' : value).replace(/[&<>\"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[ch]));
 }
 function _stockCharacterDate(time) { return String(time == null ? '' : time).slice(0,10); }
 function _stockCharacterBarsAgo(occurrence, totalBars) {
@@ -28826,6 +29324,7 @@ function closeStockCharacterScreener() {
     if (back) back.style.display='none'; if (modal) modal.style.display='none';
 }
 function runStockCharacterScreener() {
+    _stockCharacterCustomMode=false; _stockCharacterCustomSymbols=[];
     const btn=document.getElementById('stock-character-scr-run-btn'), body=document.getElementById('stock-character-scr-body');
     if (!btn || !body || _stockCharacterScanActive) return;
     const scanPattern=_stockCharacterPattern;
@@ -28849,13 +29348,13 @@ function runStockCharacterScreener() {
             if (!Array.isArray(bars) || bars.length < 25) continue;
             const data=getChartData(bars), analysis=analyzeTbosTshift(data);
             if (!analysis) continue;                const priorTbos=tbosTshiftState, priorIO=inOutPatternSignals, priorConfirmed=inOutConfirmedSignals;
-                let patterns={pbos:[],internal_choch:[],outpat_choch:[]};
+                let patterns={pbos:[],internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]};
                 try {
                     const pbos=Array.isArray(analysis.pbos) ? analysis.pbos.map((p,idx)=>_stockCharacterPbosOccurrence(p,idx,bars.length)) : [];
-                    const choch=scanPattern==='pbos' ? {internal_choch:[],outpat_choch:[]} : _stockCharacterComputeChochPatterns(data,analysis,bars.length,analysis);
-                    patterns={pbos,internal_choch:choch.internal_choch,outpat_choch:choch.outpat_choch};
+                    const choch=scanPattern==='pbos' ? {internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]} : _stockCharacterComputeChochPatterns(data,analysis,bars.length,analysis);
+                    patterns={pbos,internal_choch_type1:choch.internal_choch_type1,internal_choch_type2:choch.internal_choch_type2,outpat_choch:choch.outpat_choch,fake_tshift:choch.fake_tshift,pshift_system:choch.pshift_system};
                 } catch (_) {
-                    patterns={pbos:[],internal_choch:[],outpat_choch:[]};
+                    patterns={pbos:[],internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]};
                 } finally {
                     tbosTshiftState=priorTbos; inOutPatternSignals=priorIO; inOutConfirmedSignals=priorConfirmed;
                 }
@@ -28923,7 +29422,84 @@ function _stockCharacterSortHeader(label,key,style) {
     const active=_stockCharacterSort.key===key, indicator=active?(_stockCharacterSort.dir>0?' ↑':' ↓'):' ↕';
     return '<div data-stock-character-sort="'+key+'" role="button" tabindex="0" title="Sort '+label+' ascending or descending" style="'+style+';cursor:pointer;user-select:none;">'+label+'<span style="color:'+(active?'#fde68a':'#a78bfa')+';font-size:11px;">'+indicator+'</span></div>';
 }
+function _stockCharacterParseCustomSymbols() {
+    const el=document.getElementById('stock-character-custom-list');
+    const raw=el ? el.value : '';
+    return [...new Set(raw.split(/[\\s,;]+/).map(v=>String(v||'').trim().toUpperCase()).filter(Boolean))];
+}
+function clearStockCharacterCustomList() {
+    const el=document.getElementById('stock-character-custom-list'); if (el) el.value='';
+    _stockCharacterCustomMode=false; _stockCharacterCustomSymbols=[];
+    _stockCharacterResults=[]; _stockCharacterUpdateCounts(); renderStockCharacterScreener();
+}
+function _stockCharacterCustomPatternDefs() {
+    return [
+        {key:'pbos',label:'PBOS'},
+        {key:'internal_choch_type1',label:'Internal CHoCH Type 1'},
+        {key:'internal_choch_type2',label:'Internal CHoCH Type 2'},
+        {key:'outpat_choch',label:'OutPat CHOCH'},
+        {key:'fake_tshift',label:'Fake Tshift'},
+        {key:'pshift_system',label:'Pshift System'}
+    ];
+}
+function runStockCharacterCustomHistory() {
+    const body=document.getElementById('stock-character-scr-body'), btn=document.getElementById('stock-character-custom-btn');
+    if (!body || _stockCharacterScanActive) return;
+    const symbols=_stockCharacterParseCustomSymbols();
+    if (!symbols.length) { body.innerHTML='<div style="padding:28px;text-align:center;color:#caa94a;font-size:12px;">Enter at least one stock symbol to show its complete character history.</div>'; return; }
+    if (!Object.keys(allInstruments || {}).length) { body.innerHTML='<div style="padding:28px;text-align:center;color:#fbbf24;font-size:12px;">Stock data is still loading. Please try again after the chart data finishes loading.</div>'; return; }
+    _stockCharacterCustomMode=true; _stockCharacterCustomSymbols=symbols; _stockCharacterScanActive=true;
+    if (btn) { btn.disabled=true; btn.textContent='⏳ Loading…'; }
+    body.innerHTML='<div style="padding:28px;text-align:center;color:#fde68a;font-size:12px;">Loading complete character history for '+symbols.length+' custom symbol'+(symbols.length===1?'':'s')+'…</div>';
+    setTimeout(()=>{
+        const rows=[];
+        for (const symbol of symbols) {
+            const name=Object.keys(allInstruments).find(k=>String(k).trim().toUpperCase()===symbol);
+            if (!name) { rows.push({name:symbol,missing:true,patterns:{pbos:[],internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]}}); continue; }
+            const bars=allInstruments[name];
+            try {
+                if (!Array.isArray(bars) || bars.length<25) { rows.push({name,missing:false,insufficient:true,patterns:{pbos:[],internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]}}); continue; }
+                const data=getChartData(bars), analysis=analyzeTbosTshift(data); if (!analysis) continue;
+                const priorTbos=tbosTshiftState, priorIO=inOutPatternSignals, priorConfirmed=inOutConfirmedSignals;
+                let patterns;
+                try {
+                    const pbos=Array.isArray(analysis.pbos)?analysis.pbos.map((p,idx)=>_stockCharacterPbosOccurrence(p,idx,bars.length)):[];
+                    const choch=_stockCharacterComputeChochPatterns(data,analysis,bars.length,analysis);
+                    patterns={pbos,internal_choch_type1:choch.internal_choch_type1,internal_choch_type2:choch.internal_choch_type2,outpat_choch:choch.outpat_choch,fake_tshift:choch.fake_tshift,pshift_system:choch.pshift_system};
+                } finally { tbosTshiftState=priorTbos; inOutPatternSignals=priorIO; inOutConfirmedSignals=priorConfirmed; }
+                const last=bars[bars.length-1], previous=bars.length>1?bars[bars.length-2]:last, close=Number(last&&last.close), prevClose=Number(previous&&previous.close);
+                const chg=Number.isFinite(close)&&Number.isFinite(prevClose)&&prevClose!==0?((close-prevClose)/prevClose)*100:0;
+                rows.push({name,missing:false,close:Number.isFinite(close)?close:0,chg,patterns,pivots:analysis.pivotsUsed||0,date:last&&last.time});
+            } catch (err) { console.warn('Stock Character custom history skipped '+name,err); rows.push({name,missing:false,error:true,patterns:{pbos:[],internal_choch_type1:[],internal_choch_type2:[],outpat_choch:[],fake_tshift:[],pshift_system:[]}}); }
+        }
+        _stockCharacterResults=rows; _stockCharacterScanActive=false;
+        if (btn) { btn.disabled=false; btn.textContent='Show All History'; }
+        renderStockCharacterCustomHistory();
+    },30);
+}
+function renderStockCharacterCustomHistory() {
+    const body=document.getElementById('stock-character-scr-body'); if(!body)return;
+    const defs=_stockCharacterCustomPatternDefs();
+    let totalOccurrences=0;
+    const rows=_stockCharacterResults;
+    let html='<div style="padding:7px 18px 6px;font-size:11px;color:#caa94a;border-bottom:1px solid #4a3812;">Custom history for <strong style="color:#fbbf24;">'+rows.length+'</strong> symbol'+(rows.length===1?'':'s')+' · all confirmed character occurrences are shown below.</div>';
+    html+='<div style="padding:7px 18px;border-bottom:1px solid #4a3812;color:#d6b35a;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;">Symbol <span style="margin-left:34px;">Character history and recurrence</span></div>';
+    rows.forEach(row=>{
+        const safeName=_stockCharacterEscape(row.name), groups=defs.map(def=>{
+            const occ=Array.isArray(row.patterns&&row.patterns[def.key])?row.patterns[def.key]:[]; totalOccurrences+=occ.length;
+            const dates=occ.map(p=>_stockCharacterDate(p.breakTime||p.triggerTime||p.breakTime)).join(' · ');
+            return '<div style="margin:2px 0;"><span style="display:inline-block;min-width:174px;color:#fde68a;font-weight:700;">'+_stockCharacterEscape(def.label)+' <span style="color:#a3e635;">('+occ.length+'x)</span></span><span style="color:#b99b52;">'+(dates||'No confirmed history')+'</span></div>';
+        }).join('');
+        const msg=row.missing?'Symbol not found in loaded data.':row.insufficient?'Insufficient OHLC history for scanning.':row.error?'Scan error for this symbol.':'';
+        const last=row.close!=null?'<span style="float:right;color:#9090b8;">Close '+Number(row.close).toFixed(2)+' · '+(row.chg>=0?'+':'')+Number(row.chg||0).toFixed(2)+'%</span>':'';
+        html+='<div style="padding:8px 18px;border-bottom:1px solid rgba(138,107,22,.28);font-size:10px;line-height:1.35;">'+last+'<div style="font-size:12px;color:#fde68a;font-weight:700;margin-bottom:4px;">'+safeName+(msg?' <span style="color:#fbbf24;font-size:10px;font-weight:500;">· '+_stockCharacterEscape(msg)+'</span>':'')+'</div>'+groups+'</div>';
+    });
+    if (!rows.length) html+='<div style="padding:28px;text-align:center;color:#caa94a;font-size:12px;">No custom symbols were processed.</div>';
+    body.innerHTML=html;
+    const note=document.getElementById('stock-character-custom-note'); if(note) note.textContent='Custom mode shows all confirmed PBOS, Internal CHoCH Type 1/2, OutPat CHOCH, and Fake Tshift occurrences for the entered symbols.';
+}
 function renderStockCharacterScreener() {
+    if (_stockCharacterCustomMode) { renderStockCharacterCustomHistory(); return; }
     const body=document.getElementById('stock-character-scr-body'); if(!body)return;
     const patternName=_stockCharacterPatternName(_stockCharacterPattern);
     const rows=_stockCharacterResults.map(r=>{const occurrences=_stockCharacterActiveOccurrences(r);return {...r,activeOccurrences:occurrences,activeLatest:occurrences[occurrences.length-1],activeCount:occurrences.length};}).filter(r=>r.activeCount>0);
@@ -28945,7 +29521,7 @@ function renderStockCharacterScreener() {
         const strength=_stockCharacterStrength(r), strengthClr=strength>=8?'#4ade80':strength>=6?'#a3e635':strength>=4?'#fb923c':'#f87171';
         const recCls=r.activeCount>=3?'ir-3':r.activeCount>=2?'ir-2':'ir-1';
         const history=r.activeOccurrences.map(p=>_stockCharacterDate(p.breakTime)+' · '+(p.barsAgo==null?'—':p.barsAgo+'d')).join(' | ');
-        const pattern=patternName, patternTitle=pattern==='PBOS'?'Low → High → Higher Low → Higher High':pattern==='Internal CHoCH'?'Existing HTML Internal CHoCH Type 1 / Type 2 · PurpleOut or Blue Up-3 → Down 1-2-3':'Existing HTML OutPat CHoCH · EMA downcross → PBOS → later lower low below the PBOS support';
+        const pattern=patternName, patternTitle=pattern==='PBOS'?'Low → High → Higher Low → Higher High':pattern==='Internal CHoCH Type 1'?'Existing HTML Internal CHoCH Type 1 · Blue Up-3 → Down 1-2-3':pattern==='Internal CHoCH Type 2'?'Existing HTML Internal CHoCH Type 2 · PurpleOut → Down 1-2-3':pattern==='Fake Tshift'?'Existing HTML Fake Tshift · YellowOut → Up 1-2-3 → blue line crosses both levels without a mini-pattern':pattern==='Pshift System'?'Existing HTML Pshift System · PurpleOut → Down 1-2-3 Type 2 → Up 1-2-3 with Up-1 above Down-2':'Existing HTML OutPat CHoCH · EMA downcross → PBOS → later lower low below the PBOS support';
         const chartSymbol=String(r.name||'').trim();
         const chartHref='https://nepsealpha.com/trading/chart?symbol='+encodeURIComponent(chartSymbol);
         html+='<div class="inout-row" data-stock-character-name="'+safeName+'" data-stock-character-occ="'+(latest.occurrence||'')+'" title="'+_stockCharacterEscape(pattern+' history: '+history)+'" onclick="stockCharacterSpotlight(this.dataset.stockCharacterName,Number(this.dataset.stockCharacterOcc))" style="display:flex;align-items:center;padding:4px 18px;border-bottom:1px solid rgba(138,107,22,.24);gap:0;cursor:pointer;min-height:32px;" onmouseenter="this.style.background=&quot;rgba(251,191,36,.08)&quot;" onmouseleave="this.style.background=&quot;&quot;">'
@@ -29743,6 +30319,7 @@ function obwOpenInstrument(name) {
 //  BSL / SSL BUY SCREENER
 // ═══════════════════════════════════════════════════════════════
 let _bslResults = [];
+let _bslVisibleResults = [];
 let _bslCat     = 'all';
 let _bslSig     = 'all';
 let _bslMinWr   = 0;
@@ -29791,6 +30368,29 @@ function bslSetWr(btn) {
     _bslMinWr = parseFloat(btn.dataset.wr);
     if (_bslResults.length) renderBslScreener();
 }
+function bslCopyVisibleSymbols() {
+    var symbols = _bslVisibleResults.map(function(r){ return r.name === 'Index' ? 'NEPSE' : r.name; }).filter(Boolean);
+    var btn = document.getElementById('bsl-copy-btn');
+    if (!symbols.length) {
+        if (btn) { var empty = btn.textContent; btn.textContent = 'Nothing to copy'; setTimeout(function(){ btn.textContent = empty; }, 1500); }
+        return;
+    }
+    var text = symbols.join('\\n');
+    var done = function(){
+        if (!btn) return;
+        var old = btn.textContent;
+        btn.textContent = '✅ Copied ' + symbols.length + '!';
+        btn.classList.add('copied');
+        setTimeout(function(){ btn.textContent = old; btn.classList.remove('copied'); }, 1800);
+    };
+    var fallback = function(){
+        var ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        try { document.execCommand('copy'); done(); } finally { document.body.removeChild(ta); }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done).catch(fallback); else fallback();
+}
+
 function bslSort(hd) {
     var key = hd.dataset.sort;
     if (_bslSort.key === key) _bslSort.asc = !_bslSort.asc;
@@ -30245,6 +30845,9 @@ function renderBslScreener() {
     if (_bslMinWr > 0) filtered = filtered.filter(function(r){ return r.winRate !== null && r.winRate >= _bslMinWr; });
 
     if (!filtered.length) {
+        _bslVisibleResults = [];
+        var emptyCopyBtn = document.getElementById('bsl-copy-btn');
+        if (emptyCopyBtn) { emptyCopyBtn.disabled = true; emptyCopyBtn.textContent = '📋 Copy symbols'; emptyCopyBtn.classList.remove('copied'); }
         body.innerHTML = '<div style="padding:28px;text-align:center;color:#3a5a3a;font-size:12px;">No instruments match the current filters.</div>';
         return;
     }
@@ -30257,6 +30860,13 @@ function renderBslScreener() {
         if (typeof av === 'string') return asc ? av.localeCompare(bv) : bv.localeCompare(av);
         return asc ? av - bv : bv - av;
     });
+    _bslVisibleResults = filtered.slice();
+    var copyBtn = document.getElementById('bsl-copy-btn');
+    if (copyBtn) {
+        copyBtn.disabled = !_bslVisibleResults.length;
+        copyBtn.textContent = _bslVisibleResults.length ? '📋 Copy ' + _bslVisibleResults.length + ' symbols' : '📋 Copy symbols';
+        copyBtn.classList.remove('copied');
+    }
 
     // Signal display config (buy phase removed — non-seasonal BSL = chart SELL signal only)
     var sigCfg = {
@@ -30481,7 +31091,7 @@ function showInitialLoadError(err) {
     const msg = err && err.message ? err.message : String(err || 'Unknown startup error');
     const msgEl = document.getElementById('error-message'), hintEl = document.getElementById('error-hint');
     if (msgEl) msgEl.textContent = 'NEPSE app startup failed: ' + msg;
-    if (hintEl) hintEl.textContent = 'Refresh after checking internet access and the repository data files.';
+    if (hintEl) hintEl.textContent = 'Refresh after checking internet access and the Apps Script endpoint.';
 }
 // Final bootstrap guard: if initChart/loadData is blocked by a browser or
 // local-file dependency, replace the indefinite spinner with a clear message.
